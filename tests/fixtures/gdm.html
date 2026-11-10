@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>getDisplayMedia test</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+      button { padding: 0.5rem 0.8rem; margin: 0 0.4rem 0.8rem 0; }
+      pre { background: #111; color: #eee; padding: 1rem; overflow: auto; min-height: 8rem; }
+    </style>
+  </head>
+  <body>
+    <h1>getDisplayMedia test</h1>
+    <p>
+      Sirve esta carpeta por HTTP (<code>python3 -m http.server</code>) y abre
+      esta página en Firefox. Comprueba la captura nativa, sin la extensión.
+    </p>
+
+    <button id="gdm">Probar getDisplayMedia</button>
+    <button id="gum">Probar getUserMedia legacy</button>
+    <button id="clear">Limpiar</button>
+
+    <pre id="log"></pre>
+
+    <script>
+      const logEl = document.getElementById("log");
+
+      function log(...parts) {
+        const line = parts
+          .map((part) =>
+            typeof part === "string" ? part : JSON.stringify(part, null, 2),
+          )
+          .join(" ");
+        logEl.textContent += line + "\n";
+        console.log(line);
+      }
+
+      function describe(stream) {
+        const track = stream.getVideoTracks()[0];
+        return {
+          tracks: stream.getTracks().map((item) => ({
+            kind: item.kind,
+            label: item.label,
+            readyState: item.readyState,
+          })),
+          settings: track ? track.getSettings() : null,
+          constraints: track ? track.getConstraints() : null,
+        };
+      }
+
+      document.getElementById("gdm").addEventListener("click", async () => {
+        log("getDisplayMedia: llamando con constraints de Teams");
+        try {
+          const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              resizeMode: "none",
+              width: { max: 1920 },
+              height: { max: 1080 },
+              frameRate: { max: 15 },
+            },
+          });
+          log("getDisplayMedia: OK", describe(stream));
+          stream.getVideoTracks()[0].addEventListener("ended", () => {
+            log("track ended");
+          });
+        } catch (error) {
+          log("getDisplayMedia: ERROR", {
+            name: error.name,
+            message: error.message,
+          });
+        }
+      });
+
+      document.getElementById("gum").addEventListener("click", async () => {
+        log("getUserMedia legacy: llamando con chromeMediaSource");
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              mandatory: {
+                chromeMediaSource: "desktop",
+                maxWidth: 1920,
+                maxHeight: 1080,
+                maxFrameRate: 15,
+              },
+            },
+          });
+          log("getUserMedia legacy: OK (¿cámara o pantalla?)", describe(stream));
+        } catch (error) {
+          log("getUserMedia legacy: ERROR", {
+            name: error.name,
+            message: error.message,
+          });
+        }
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        logEl.textContent = "";
+      });
+    </script>
+  </body>
+</html>

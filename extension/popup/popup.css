@@ -1,0 +1,125 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f8;
+  --fg: #1b1b1f;
+  --muted: #62626a;
+  --card: #ffffff;
+  --border: #d9d9de;
+  --accent: #4b53bc;
+  --accent-fg: #ffffff;
+  --warn: #9a5b00;
+  --fail: #a32323;
+  --pass: #1f6b3a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171a;
+    --fg: #f0f0f3;
+    --muted: #a6a6b0;
+    --card: #212126;
+    --border: #3a3a42;
+    --accent: #8f97ff;
+    --accent-fg: #101014;
+    --warn: #ffb85c;
+    --fail: #ff8080;
+    --pass: #7bd99a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 420px;
+  max-height: 560px;
+  margin: 0;
+  padding: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  margin: 2px 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.status {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  margin-bottom: 10px;
+  white-space: pre-wrap;
+}
+
+.status.pass {
+  border-color: var(--pass);
+  color: var(--pass);
+}
+
+.status.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.status.fail {
+  border-color: var(--fail);
+  color: var(--fail);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+button {
+  flex: 1;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font: 11px/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}

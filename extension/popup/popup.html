@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teams Screen Share Fix</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Teams Screen Share Fix</h1>
+      <p class="sub">No oficial · diagnóstico local</p>
+    </header>
+
+    <div id="status" class="status">Comprobando pestaña…</div>
+
+    <div class="actions">
+      <button id="refresh" type="button">Analizar pestaña</button>
+      <button id="copy" type="button">Copiar informe</button>
+    </div>
+
+    <pre id="report" aria-live="polite"></pre>
+
+    <p class="hint">
+      Abre o recarga una pestaña de Teams antes de analizar. El informe se genera
+      en tu equipo y no se envía a ningún servidor.
+    </p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

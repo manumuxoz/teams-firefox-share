@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Teams Screen Share Fix (Unofficial)",
+  "version": "0.1.0",
+  "description": "Workarounds and diagnostics for Microsoft Teams screen sharing in Firefox on Linux.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "teams-screenshare-fix@local",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": [
+    "*://teams.microsoft.com/*",
+    "*://teams.cloud.microsoft/*",
+    "*://teams.live.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://teams.microsoft.com/*",
+        "*://teams.cloud.microsoft/*",
+        "*://teams.live.com/*"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN",
+      "js": ["src/lib/constraints.js", "src/shim.js"]
+    }
+  ],
+  "action": {
+    "default_title": "Teams Screen Share Fix",
+    "default_popup": "popup/popup.html"
+  }
+}

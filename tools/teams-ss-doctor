@@ -1,0 +1,898 @@
+#!/usr/bin/env python3
+"""
+Teams screen-share doctor for Firefox on Linux.
+
+Read-only by default. It inspects the session, portal, PipeWire, XDPH,
+OpenH264, Firefox prefs and the bundled WebCompat intervention, then prints
+an actionable report. Fixes are opt-in and create backups.
+
+SPDX-License-Identifier: MPL-2.0
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import textwrap
+import zipfile
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Iterable
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+FIREFOX_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64; rv:153.0) "
+    "Gecko/20100101 Firefox/153.0"
+)
+
+WEBCOMPAT_FILE = (
+    "chrome/browser/builtin-addons/webcompat/data/interventions/"
+    "2000906-teams.microsoft.com.json"
+)
+
+TEAMS_MATCHES = [
+    "*://teams.microsoft.com/*",
+    "*://teams.cloud.microsoft/*",
+    "*://teams.live.com/*",
+]
+
+STATUS_ORDER = {"FAIL": 0, "WARN": 1, "PASS": 2, "INFO": 3}
+
+
+@dataclass
+class Check:
+    id: str
+    title: str
+    status: str
+    detail: str = ""
+    fix: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Process helpers
+# ---------------------------------------------------------------------------
+
+
+def run(cmd: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def cmd_output(cmd: list[str], timeout: int = 8) -> str | None:
+    result = run(cmd, timeout=timeout)
+    if result is None or result.returncode != 0:
+        return None
+    output = (result.stdout or "").strip()
+    return output or None
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Firefox helpers
+# ---------------------------------------------------------------------------
+
+
+def firefox_profiles() -> list[Path]:
+    roots = [
+        Path.home() / ".mozilla" / "firefox",
+        Path.home() / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox",
+        Path.home() / "snap" / "firefox" / "common" / ".mozilla" / "firefox",
+    ]
+    profiles: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if child.is_dir() and (child / "prefs.js").exists():
+                profiles.append(child)
+    return sorted(profiles, key=lambda path: path.name)
+
+
+def find_omni_ja() -> Path | None:
+    candidates: list[Path] = [
+        Path("/usr/lib/firefox-esr/browser/omni.ja"),
+        Path("/usr/lib/firefox/browser/omni.ja"),
+        Path("/opt/firefox/browser/omni.ja"),
+        Path("/app/lib/firefox/browser/omni.ja"),
+        Path("/snap/firefox/current/usr/lib/firefox/browser/omni.ja"),
+    ]
+
+    firefox = shutil.which("firefox")
+    if firefox:
+        binary = Path(firefox).resolve()
+        candidates.extend(
+            [
+                binary.parent / "browser" / "omni.ja",
+                binary.parent.parent / "browser" / "omni.ja",
+                binary.parent / "omni.ja",
+            ]
+        )
+
+    flatpak_root = Path("/var/lib/flatpak/app/org.mozilla.firefox")
+    if flatpak_root.is_dir():
+        candidates.extend(flatpak_root.glob("*/*/files/lib/firefox/browser/omni.ja"))
+
+    user_flatpak_root = Path.home() / ".local" / "share" / "flatpak" / "app" / "org.mozilla.firefox"
+    if user_flatpak_root.is_dir():
+        candidates.extend(user_flatpak_root.glob("*/*/files/lib/firefox/browser/omni.ja"))
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+PREFS_RE = re.compile(r'^user_pref\("([^"]+)",\s*(.*)\);\s*$')
+
+
+def parse_prefs(path: Path) -> dict[str, object]:
+    prefs: dict[str, object] = {}
+    for line in read_text(path).splitlines():
+        match = PREFS_RE.match(line.strip())
+        if not match:
+            continue
+        key, raw = match.group(1), match.group(2)
+        try:
+            prefs[key] = json.loads(raw)
+        except json.JSONDecodeError:
+            prefs[key] = raw
+    return prefs
+
+
+def parse_portal_file(path: Path) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for line in read_text(path).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
+def package_version(package: str) -> str | None:
+    if shutil.which("dpkg-query"):
+        output = cmd_output(["dpkg-query", "-W", "-f=${Version}", package])
+        if output:
+            return output
+    if shutil.which("rpm"):
+        output = cmd_output(["rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}", package])
+        if output and "not installed" not in output.lower():
+            return output
+    return None
+
+
+def version_tuple(version: str) -> tuple[int, int, int] | None:
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", version)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+
+def check_session() -> Check:
+    session = os.environ.get("XDG_SESSION_TYPE", "")
+    wayland = os.environ.get("WAYLAND_DISPLAY", "")
+    display = os.environ.get("DISPLAY", "")
+    moz = os.environ.get("MOZ_ENABLE_WAYLAND", "")
+
+    detail = (
+        f"XDG_SESSION_TYPE={session or '?'}, "
+        f"WAYLAND_DISPLAY={wayland or '?'}, "
+        f"DISPLAY={display or '?'}, "
+        f"MOZ_ENABLE_WAYLAND={moz or '?'}"
+    )
+
+    if session == "wayland" and wayland:
+        return Check("session", "Sesión Wayland", "PASS", detail)
+
+    if session == "wayland" and not wayland:
+        return Check(
+            "session",
+            "Sesión Wayland",
+            "FAIL",
+            detail + " — falta WAYLAND_DISPLAY; Firefox no usará PipeWire.",
+            "Exporta WAYLAND_DISPLAY o inicia Firefox desde la sesión Wayland.",
+        )
+
+    if session == "x11" or display:
+        return Check(
+            "session",
+            "Sesión X11/XWayland",
+            "INFO",
+            detail + " — la captura usará X11; no requiere portal ScreenCast.",
+        )
+
+    return Check(
+        "session",
+        "Sesión gráfica",
+        "WARN",
+        detail + " — no se pudo determinar la sesión.",
+    )
+
+
+def check_firefox() -> Check:
+    firefox = shutil.which("firefox")
+    if not firefox:
+        return Check(
+            "firefox",
+            "Firefox",
+            "FAIL",
+            "No se encontró firefox en PATH.",
+            "Instala Firefox o ejecuta el doctor con el PATH correcto.",
+        )
+
+    version = cmd_output([firefox, "--version"]) or "versión desconocida"
+    return Check("firefox", "Firefox", "PASS", f"{version} ({firefox})")
+
+
+def check_webcompat() -> Check:
+    omni = find_omni_ja()
+    if not omni:
+        return Check(
+            "webcompat",
+            "WebCompat 2000906",
+            "WARN",
+            "No se encontró browser/omni.ja; no se pudo verificar la intervención.",
+            "Comprueba about:compat en Firefox y busca teams.microsoft.com.",
+        )
+
+    try:
+        with zipfile.ZipFile(omni) as archive:
+            try:
+                raw = archive.read(WEBCOMPAT_FILE)
+            except KeyError:
+                return Check(
+                    "webcompat",
+                    "WebCompat 2000906",
+                    "WARN",
+                    f"{omni} no contiene la intervención 2000906.",
+                    "Actualiza Firefox; la intervención llegó en 146 y se amplió en 153.",
+                )
+            data = json.loads(raw)
+    except (OSError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
+        return Check(
+            "webcompat",
+            "WebCompat 2000906",
+            "WARN",
+            f"No se pudo leer {omni}: {exc}",
+        )
+
+    matches = (
+        data.get("bugs", {})
+        .get("2000906", {})
+        .get("matches", [])
+    )
+    missing = [pattern for pattern in TEAMS_MATCHES if pattern not in matches]
+
+    if missing:
+        return Check(
+            "webcompat",
+            "WebCompat 2000906",
+            "WARN",
+            f"Intervención presente, pero faltan dominios: {', '.join(missing)}.",
+            "Actualiza Firefox o usa la extensión para cubrir el dominio que falta.",
+        )
+
+    return Check(
+        "webcompat",
+        "WebCompat 2000906",
+        "PASS",
+        f"Activa en {omni}; cubre los tres dominios de Teams.",
+    )
+
+
+def check_prefs(profiles: list[Path]) -> Check:
+    if not profiles:
+        return Check(
+            "prefs",
+            "Preferencias de Firefox",
+            "WARN",
+            "No se encontraron perfiles de Firefox.",
+        )
+
+    rows: list[str] = []
+    resize_disabled = False
+
+    for profile in profiles:
+        prefs = parse_prefs(profile / "prefs.js")
+        pipewire = prefs.get("media.webrtc.capture.allow-pipewire", True)
+        resize = prefs.get("media.navigator.video.resize_mode.enabled", True)
+        webcompat = prefs.get("extensions.webcompat.perform_injections", True)
+        openh264 = prefs.get("media.gmp-gmpopenh264.enabled", True)
+
+        if resize is False:
+            resize_disabled = True
+
+        rows.append(
+            f"{profile.name}: pipewire={pipewire}, "
+            f"resizeMode={resize}, webcompat={webcompat}, openh264={openh264}"
+        )
+
+    detail = "; ".join(rows)
+
+    if resize_disabled:
+        return Check(
+            "prefs",
+            "Preferencias de Firefox",
+            "WARN",
+            detail + " — resizeMode desactivado; puede ser un workaround manual.",
+            "Revisa media.navigator.video.resize_mode.enabled; la extensión evita desactivarlo globalmente.",
+        )
+
+    return Check("prefs", "Preferencias de Firefox", "PASS", detail)
+
+
+def check_openh264(profiles: list[Path]) -> Check:
+    if not profiles:
+        return Check(
+            "openh264",
+            "OpenH264",
+            "WARN",
+            "No se encontraron perfiles de Firefox.",
+        )
+
+    found: list[str] = []
+    for profile in profiles:
+        for lib in profile.glob("gmp-gmpopenh264/*/libgmpopenh264.so"):
+            found.append(f"{profile.name}:{lib.parent.name}")
+
+    if not found:
+        return Check(
+            "openh264",
+            "OpenH264",
+            "FAIL",
+            "No se encontró libgmpopenh264.so en ningún perfil.",
+            "Abre about:plugins en Firefox y verifica OpenH264; Microsoft lo requiere para sharing completo.",
+        )
+
+    return Check("openh264", "OpenH264", "PASS", ", ".join(found))
+
+
+def check_portal() -> Check:
+    gdbus = shutil.which("gdbus")
+    if not gdbus:
+        return Check(
+            "portal",
+            "Portal ScreenCast",
+            "WARN",
+            "gdbus no está disponible; no se pudo consultar D-Bus.",
+        )
+
+    result = run(
+        [
+            gdbus,
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.DBus.Properties.Get",
+            "org.freedesktop.portal.ScreenCast",
+            "version",
+        ]
+    )
+
+    if result is None or result.returncode != 0:
+        error = (result.stderr or "").strip() if result else "gdbus no disponible"
+        return Check(
+            "portal",
+            "Portal ScreenCast",
+            "FAIL",
+            f"No responde org.freedesktop.portal.ScreenCast: {error}",
+            "Instala/activa xdg-desktop-portal y un backend ScreenCast.",
+        )
+
+    match = re.search(r"uint32\s+(\d+)", result.stdout or "")
+    version = match.group(1) if match else "?"
+    return Check("portal", "Portal ScreenCast", "PASS", f"Versión D-Bus {version}.")
+
+
+def check_backend() -> Check:
+    portal_dir = Path("/usr/share/xdg-desktop-portal/portals")
+    if not portal_dir.is_dir():
+        return Check(
+            "backend",
+            "Backend ScreenCast",
+            "WARN",
+            f"No existe {portal_dir}.",
+        )
+
+    backends: list[str] = []
+    for path in sorted(portal_dir.glob("*.portal")):
+        data = parse_portal_file(path)
+        interfaces = data.get("Interfaces", "")
+        if "org.freedesktop.impl.portal.ScreenCast" in interfaces:
+            backends.append(
+                f"{path.name} ({data.get('DBusName', '?')}, "
+                f"UseIn={data.get('UseIn', '?')})"
+            )
+
+    if not backends:
+        return Check(
+            "backend",
+            "Backend ScreenCast",
+            "FAIL",
+            "Ningún archivo .portal implementa ScreenCast.",
+            "Instala xdg-desktop-portal-hyprland, -wlr, -gnome o -kde según tu escritorio.",
+        )
+
+    return Check("backend", "Backend ScreenCast", "PASS", "; ".join(backends))
+
+
+def check_pipewire() -> Check:
+    issues: list[str] = []
+    for unit in ("pipewire", "wireplumber"):
+        result = run(["systemctl", "--user", "is-active", unit])
+        state = (result.stdout or "").strip() if result else "desconocido"
+        if state != "active":
+            issues.append(f"{unit}={state}")
+
+    version = cmd_output(["pipewire", "--version"]) or "versión desconocida"
+
+    if issues:
+        return Check(
+            "pipewire",
+            "PipeWire/WirePlumber",
+            "FAIL",
+            f"{version}; " + ", ".join(issues),
+            "systemctl --user start pipewire wireplumber",
+        )
+
+    return Check("pipewire", "PipeWire/WirePlumber", "PASS", version)
+
+
+def check_xdph() -> Check:
+    version = package_version("xdg-desktop-portal-hyprland")
+    if not version:
+        return Check(
+            "xdph",
+            "xdg-desktop-portal-hyprland",
+            "INFO",
+            "No instalado o no detectado (puede que uses otro backend).",
+        )
+
+    parsed = version_tuple(version)
+    if parsed is None:
+        return Check("xdph", "xdg-desktop-portal-hyprland", "INFO", version)
+
+    if parsed < (1, 5, 0):
+        return Check(
+            "xdph",
+            "xdg-desktop-portal-hyprland",
+            "WARN",
+            f"{version}; el fix de congelación por out-of-buffers está en 1.5.0+ (PR #424).",
+            "Actualiza a 1.5.0+ o prueba --fix xdph-force-shm como mitigación.",
+        )
+
+    return Check("xdph", "xdg-desktop-portal-hyprland", "PASS", version)
+
+
+def check_xdph_config() -> Check:
+    path = Path.home() / ".config" / "hypr" / "xdph.conf"
+    if not path.exists():
+        return Check(
+            "xdph-config",
+            "Configuración XDPH",
+            "INFO",
+            f"{path} no existe; se usan valores por defecto "
+            "(DMA-BUF, selector hyprland-share-picker).",
+        )
+
+    text = read_text(path)
+    force_shm = re.search(r"^\s*force_shm\s*=\s*(true|1)\s*$", text, re.I | re.M)
+    picker = re.search(r"^\s*custom_picker_binary\s*=\s*(\S+)", text, re.M)
+
+    parts = [
+        f"force_shm={'sí' if force_shm else 'no'}",
+        f"picker={picker.group(1) if picker else 'default'}",
+    ]
+    return Check("xdph-config", "Configuración XDPH", "INFO", f"{path}: " + ", ".join(parts))
+
+
+def check_logs() -> Check:
+    if not shutil.which("journalctl"):
+        return Check("logs", "Logs del portal", "INFO", "journalctl no disponible.")
+
+    result = run(
+        [
+            "journalctl",
+            "--user",
+            "-u",
+            "xdg-desktop-portal-hyprland",
+            "-u",
+            "xdg-desktop-portal",
+            "-n",
+            "300",
+            "--no-pager",
+        ],
+        timeout=10,
+    )
+
+    if result is None or result.returncode != 0:
+        return Check("logs", "Logs del portal", "INFO", "No se pudieron leer los logs.")
+
+    lines = (result.stdout or "").splitlines()
+    patterns = {
+        "session_destroyed": "Session destroyed",
+        "out_of_buffers": "Out of buffers",
+        "selection_minus_one": "selection -1",
+        "dma_buf": "DMA-BUF",
+        "error": "error",
+    }
+    counts = {
+        key: sum(1 for line in lines if needle.lower() in line.lower())
+        for key, needle in patterns.items()
+    }
+    interesting = [
+        line
+        for line in lines
+        if any(needle.lower() in line.lower() for needle in patterns.values())
+    ]
+
+    detail = ", ".join(f"{key}={value}" for key, value in counts.items() if value)
+
+    if (
+        counts["out_of_buffers"]
+        or counts["selection_minus_one"]
+        or counts["session_destroyed"] >= 5
+    ):
+        return Check(
+            "logs",
+            "Logs del portal",
+            "WARN",
+            detail + " — señales de fallo o ciclo de sesiones del portal.",
+            "journalctl --user -u xdg-desktop-portal-hyprland -f",
+        )
+
+    if interesting:
+        return Check(
+            "logs",
+            "Logs del portal",
+            "INFO",
+            detail + " — últimas líneas: " + " | ".join(interesting[-3:]),
+        )
+
+    return Check("logs", "Logs del portal", "PASS", "Sin errores recientes.")
+
+
+def check_gpu() -> Check:
+    if not shutil.which("lspci"):
+        return Check("gpu", "GPU", "INFO", "lspci no disponible.")
+
+    output = cmd_output(["lspci"]) or ""
+    gpus = [
+        line
+        for line in output.splitlines()
+        if re.search(r"VGA|3D|Display", line, re.I)
+    ]
+
+    if not gpus:
+        return Check("gpu", "GPU", "INFO", "No se detectaron GPUs.")
+
+    detail = " | ".join(gpus)
+    if "NVIDIA" in detail.upper():
+        return Check(
+            "gpu",
+            "GPU",
+            "WARN",
+            detail + " — NVIDIA + DMA-BUF es un caso propenso a fallos; prueba force_shm.",
+            "Prueba --fix xdph-force-shm o usa X11.",
+        )
+
+    return Check("gpu", "GPU", "INFO", detail)
+
+
+def check_teams() -> Check:
+    url = "https://teams.microsoft.com/v2/"
+    request = Request(url, headers={"User-Agent": FIREFOX_UA})
+    try:
+        with urlopen(request, timeout=8) as response:
+            status = response.status
+            final = response.geturl()
+        return Check(
+            "teams",
+            "Endpoints de Teams",
+            "PASS",
+            f"{url} → HTTP {status}, final {final}",
+        )
+    except HTTPError as exc:
+        return Check("teams", "Endpoints de Teams", "WARN", f"HTTP {exc.code} en {url}")
+    except (URLError, TimeoutError, OSError) as exc:
+        return Check("teams", "Endpoints de Teams", "WARN", f"No se pudo conectar: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+
+
+def run_checks(no_network: bool = False) -> list[Check]:
+    profiles = firefox_profiles()
+    checks = [
+        check_session(),
+        check_firefox(),
+        check_webcompat(),
+        check_prefs(profiles),
+        check_openh264(profiles),
+        check_portal(),
+        check_backend(),
+        check_pipewire(),
+        check_xdph(),
+        check_xdph_config(),
+        check_logs(),
+        check_gpu(),
+    ]
+    if not no_network:
+        checks.append(check_teams())
+    return checks
+
+
+def counts(checks: Iterable[Check]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for check in checks:
+        result[check.status] = result.get(check.status, 0) + 1
+    return result
+
+
+def probable_cause(checks: list[Check]) -> str:
+    by_id = {check.id: check for check in checks}
+
+    portal_ids = ("portal", "backend", "pipewire", "xdph", "logs")
+    portal_bad = any(
+        by_id.get(check_id) and by_id[check_id].status in ("FAIL", "WARN")
+        for check_id in portal_ids
+    )
+
+    if portal_bad:
+        return (
+            "Portal Wayland/PipeWire (Modo C). El problema está por debajo de "
+            "JavaScript: actualiza XDPH, prueba force_shm o usa X11/XWayland."
+        )
+
+    if by_id.get("webcompat") and by_id["webcompat"].status in ("FAIL", "WARN"):
+        return (
+            "Constraints/WebCompat (Modo B). Revisa la intervención 2000906 "
+            "y usa la extensión como refuerzo."
+        )
+
+    if by_id.get("openh264") and by_id["openh264"].status == "FAIL":
+        return (
+            "Codec/OpenH264 (Modo B). Microsoft documenta que sin OpenH264 "
+            "puede fallar el sharing."
+        )
+
+    return (
+        "No se detecta un fallo de sistema. Si Teams sigue fallando, revisa "
+        "la consola y el informe de la extensión (Modos B/D/E)."
+    )
+
+
+def print_report(checks: list[Check], verbose: bool = False) -> None:
+    print(f"Teams screen share doctor — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print("=" * 68)
+
+    for check in checks:
+        print(f"[{check.status:<4}] {check.title}")
+        if check.detail:
+            wrapped = textwrap.fill(
+                check.detail,
+                width=66,
+                initial_indent="       ",
+                subsequent_indent="       ",
+            )
+            print(wrapped)
+        if verbose and check.fix:
+            wrapped = textwrap.fill(
+                "fix: " + check.fix,
+                width=66,
+                initial_indent="       ",
+                subsequent_indent="       ",
+            )
+            print(wrapped)
+
+    summary = counts(checks)
+    print("-" * 68)
+    print(
+        "Resumen: "
+        + ", ".join(f"{key}={summary.get(key, 0)}" for key in ("PASS", "WARN", "FAIL", "INFO"))
+    )
+    print()
+    print("Diagnóstico probable:")
+    print(textwrap.fill(probable_cause(checks), width=68))
+    print()
+    print("Siguiente paso:")
+    print("  1. Si el diagnóstico es Modo C, revisa docs/DIAGNOSIS.md (portal Wayland).")
+    print("  2. Si es Modo B, carga la extensión y comparte en una reunión.")
+    print("  3. Adjunta la salida de --json si abres un issue.")
+
+
+# ---------------------------------------------------------------------------
+# Opt-in fixes
+# ---------------------------------------------------------------------------
+
+
+def backup_path(path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return path.with_name(f"{path.name}.bak.{stamp}")
+
+
+def insert_into_screencopy_block(text: str, key: str, value: str) -> tuple[str, str]:
+    lines = text.splitlines()
+
+    if any(re.match(rf"^\s*{re.escape(key)}\s*=", line) for line in lines):
+        return text, "already"
+
+    start = None
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*screencopy\s*\{", line):
+            start = index
+            break
+
+    if start is None:
+        block = f"\nscreencopy {{\n    {key} = {value}\n}}\n"
+        return text.rstrip() + block, "appended"
+
+    end = None
+    for index in range(start + 1, len(lines)):
+        if re.match(r"^\s*\}\s*$", lines[index]):
+            end = index
+            break
+
+    if end is None:
+        return text, "error"
+
+    lines.insert(end, f"    {key} = {value}")
+    trailing = "\n" if text.endswith("\n") else ""
+    return "\n".join(lines) + trailing, "inserted"
+
+
+def apply_xdph_fix(key: str, value: str, dry_run: bool) -> None:
+    path = Path.home() / ".config" / "hypr" / "xdph.conf"
+    original = read_text(path) if path.exists() else ""
+    updated, action = insert_into_screencopy_block(original, key, value)
+
+    print()
+    print(f"Fix: {key} = {value}")
+    print(f"Archivo: {path}")
+
+    if action == "already":
+        print("Ya estaba configurado; no se cambia nada.")
+        return
+
+    if action == "error":
+        print("No se pudo localizar el bloque screencopy; edita el archivo a mano.")
+        return
+
+    if dry_run:
+        print("Dry-run; no se escribe nada. Cambio propuesto:")
+        print(updated)
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        backup = backup_path(path)
+        backup.write_text(original, encoding="utf-8")
+        print(f"Backup: {backup}")
+
+    path.write_text(updated, encoding="utf-8")
+    print("Escrito. Reinicia el portal para aplicarlo:")
+    print("  systemctl --user restart xdg-desktop-portal-hyprland xdg-desktop-portal")
+
+
+def restart_portal(dry_run: bool) -> None:
+    command = [
+        "systemctl",
+        "--user",
+        "restart",
+        "xdg-desktop-portal-hyprland",
+        "xdg-desktop-portal",
+    ]
+    print()
+    print("Fix: reiniciar portal")
+    print("Comando: " + " ".join(command))
+    if dry_run:
+        print("Dry-run; no se ejecuta.")
+        return
+    result = run(command, timeout=15)
+    if result is None:
+        print("No se pudo ejecutar systemctl.")
+        return
+    if result.returncode == 0:
+        print("Portal reiniciado.")
+    else:
+        print("Error al reiniciar:")
+        print((result.stderr or result.stdout or "").strip())
+
+
+def apply_fix(action: str, dry_run: bool) -> None:
+    if action == "xdph-force-shm":
+        apply_xdph_fix("force_shm", "true", dry_run)
+    elif action == "xdph-legacy-picker":
+        apply_xdph_fix("custom_picker_binary", "hyprland-share-picker", dry_run)
+    elif action == "restart-portal":
+        restart_portal(dry_run)
+    elif action == "x11-command":
+        print()
+        print("Prueba XWayland/X11 con una instancia nueva:")
+        print("  MOZ_ENABLE_WAYLAND=0 firefox --new-instance")
+        print("Si funciona, el fallo está en la ruta Wayland/PipeWire.")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Diagnóstico de compartir pantalla de Teams en Firefox/Linux.",
+    )
+    parser.add_argument("--json", action="store_true", help="Salida JSON.")
+    parser.add_argument("--verbose", action="store_true", help="Incluye fixes sugeridos.")
+    parser.add_argument("--no-network", action="store_true", help="No comprobar endpoints de Teams.")
+    parser.add_argument(
+        "--fix",
+        choices=[
+            "xdph-force-shm",
+            "xdph-legacy-picker",
+            "restart-portal",
+            "x11-command",
+        ],
+        help="Aplicar un workaround opt-in (con backup cuando aplica).",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Mostrar cambios sin aplicarlos.")
+    args = parser.parse_args(argv)
+
+    checks = run_checks(no_network=args.no_network)
+
+    if args.json:
+        payload = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "checks": [asdict(check) for check in checks],
+            "summary": counts(checks),
+            "probable_cause": probable_cause(checks),
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print_report(checks, verbose=args.verbose)
+
+    if args.fix:
+        apply_fix(args.fix, args.dry_run)
+
+    return 1 if any(check.status == "FAIL" for check in checks) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
