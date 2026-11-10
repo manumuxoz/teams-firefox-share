@@ -1,0 +1,55 @@
+name: AMO Sign
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Canal de AMO"
+        type: choice
+        options:
+          - unlisted
+          - listed
+        default: unlisted
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Sign with AMO
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx web-ext sign \
+            --source-dir extension \
+            --artifacts-dir dist/signed \
+            --channel "${{ inputs.channel }}" \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"
+
+      - name: Upload signed XPI
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-xpi
+          path: dist/signed/*.xpi
+          if-no-files-found: error

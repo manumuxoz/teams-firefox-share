@@ -173,4 +173,6 @@ python3 tools/teams-ss-doctor --fix x11-command
 - Informe del popup de la extensión.
 - Captura de `about:support` (sección Media/WebRTC) si es posible.
 
+El informe del popup oculta la query string y los IDs de reunión de la URL; de los tracks solo muestra la longitud de la etiqueta, no el título de la ventana.
+
 No incluyas cookies, tokens, correos ni contenido de reuniones.

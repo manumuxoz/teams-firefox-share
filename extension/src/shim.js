@@ -1,7 +1,7 @@
 /*
  * Teams screen-share compatibility shim.
  *
- * Runs in the page's MAIN world at document_start (Firefox 128+), before
+ * Runs in the page's MAIN world at document_start (Firefox 142+), before
  * Teams' bundles. It composes with Mozilla's WebCompat intervention 2000906
  * instead of replacing it.
  *
@@ -11,33 +11,62 @@
   "use strict";
 
   const W = window;
+  const MARKER = "__teamsShareFixInstalled_v2";
 
-  if (W.__teamsShareFixInstalled) {
+  if (W[MARKER]) {
     return;
   }
-  W.__teamsShareFixInstalled = true;
 
-  const C = W.__teamsShareConstraints;
-  if (!C) {
-    console.warn("[teams-share-fix] constraint helpers were not loaded");
+  try {
+    Object.defineProperty(W, MARKER, {
+      value: true,
+      configurable: false,
+      writable: false,
+    });
+  } catch (_) {
     return;
   }
+
+  const configApi = W.__teamsShareConfig;
+  const constraintsApi = W.__teamsShareConstraints;
+
+  if (!configApi || !constraintsApi) {
+    console.warn("[teams-share-fix] shared helpers were not loaded");
+    return;
+  }
+
+  const { normalizeConfig } = configApi;
+  const C = constraintsApi;
 
   const state = {
-    version: "0.1.0",
+    version: "0.2.0",
     installedAt: new Date().toISOString(),
-    config: {
-      enabled: true,
-      sanitizeDisplay: true,
-      mapLegacyDesktop: true,
-      debug: false,
-    },
+    config: normalizeConfig(null),
+    configRev: -1,
     events: [],
   };
 
-  W.__teamsShareFix = state;
-
   const MAX_EVENTS = 200;
+  const SAFE_CLAMP = Object.freeze({
+    width: { max: 1920 },
+    height: { max: 1080 },
+    frameRate: { max: 15 },
+  });
+
+  // Do not expose the mutable state object to page scripts.
+  try {
+    Object.defineProperty(W, "__teamsShareFix", {
+      value: Object.freeze({
+        version: state.version,
+        installedAt: state.installedAt,
+      }),
+      configurable: false,
+      writable: false,
+      enumerable: false,
+    });
+  } catch (_) {
+    // A page-defined property must not prevent the shim from loading.
+  }
 
   function errorInfo(error) {
     return {
@@ -65,7 +94,7 @@
     if (typeof value.kind === "string" && typeof value.readyState === "string") {
       return {
         kind: value.kind,
-        label: value.label || "",
+        labelLength: (value.label || "").length,
         readyState: value.readyState,
       };
     }
@@ -142,21 +171,80 @@
     }
   }
 
+  function safeHref() {
+    try {
+      const url = new URL(location.href);
+      const first = url.pathname.split("/").filter(Boolean)[0] || "";
+      return first ? `${url.origin}/${first}/` : `${url.origin}/`;
+    } catch (_) {
+      return "";
+    }
+  }
+
   function getEnvironment() {
     const md = navigator.mediaDevices;
     return {
       userAgent: navigator.userAgent,
       platform: navigator.platform,
-      href: location.href,
+      href: safeHref(),
       isSecureContext: Boolean(W.isSecureContext),
       hasMediaDevices: Boolean(md),
       hasGetDisplayMedia: Boolean(md && typeof md.getDisplayMedia === "function"),
       hasGetUserMedia: Boolean(md && typeof md.getUserMedia === "function"),
       webcompat: getWebCompatMarkers(),
       codecs: getCodecs(),
-      shim: { ...state.config },
+      config: { ...state.config },
+      configRev: state.configRev,
     };
   }
+
+  function applyConfig(next, rev) {
+    if (typeof rev === "number") {
+      if (!Number.isInteger(rev) || rev < 0 || rev < state.configRev) {
+        return;
+      }
+      state.configRev = rev;
+    }
+
+    try {
+      state.config = normalizeConfig({
+        ...state.config,
+        ...(next && typeof next === "object" ? next : {}),
+      });
+    } catch (error) {
+      record("config:error", errorInfo(error));
+      return;
+    }
+
+    record("config:update", {
+      ...state.config,
+      rev: state.configRev,
+    });
+  }
+
+  function isSameWindowMessage(event) {
+    if (event.source !== W) {
+      return false;
+    }
+    if (event.origin === location.origin) {
+      return true;
+    }
+    return location.origin === "null" && event.origin === "null";
+  }
+
+  W.addEventListener("message", (event) => {
+    if (!isSameWindowMessage(event)) {
+      return;
+    }
+    const data = event.data;
+    if (!data || data.type !== "teams-share-fix:config") {
+      return;
+    }
+    applyConfig(data.config, data.rev);
+  });
+
+  const requestOrigin = location.origin === "null" ? "*" : location.origin;
+  W.postMessage({ type: "teams-share-fix:config-request" }, requestOrigin);
 
   const md = navigator.mediaDevices;
 
@@ -176,69 +264,111 @@
     W.__teamsShareFixReport = () => ({
       environment: getEnvironment(),
       events: state.events.slice(),
+      config: { ...state.config },
+      shim: { version: state.version, installedAt: state.installedAt },
     });
     return;
   }
 
   let nativeGetDisplayMedia = null;
 
+  function attachStreamDiagnostics(stream) {
+    const tracks = stream && typeof stream.getTracks === "function"
+      ? stream.getTracks()
+      : [];
+    const videoTrack = stream && typeof stream.getVideoTracks === "function"
+      ? stream.getVideoTracks()[0] || null
+      : null;
+
+    record("gdm:success", {
+      tracks: tracks.map((track) => ({
+        kind: track.kind,
+        labelLength: (track.label || "").length,
+        readyState: track.readyState,
+      })),
+      settings: trackSettings(videoTrack),
+      constraints: trackConstraints(videoTrack),
+    });
+
+    if (videoTrack && typeof videoTrack.addEventListener === "function") {
+      videoTrack.addEventListener("ended", () => {
+        record("track:ended", {
+          labelLength: (videoTrack.label || "").length,
+          settings: trackSettings(videoTrack),
+        });
+      });
+    }
+  }
+
+  function clampStream(stream) {
+    const videoTrack = stream && typeof stream.getVideoTracks === "function"
+      ? stream.getVideoTracks()[0] || null
+      : null;
+
+    if (!videoTrack || typeof videoTrack.applyConstraints !== "function") {
+      record("safeClamp:skip", { reason: "no-video-track" });
+      return Promise.resolve(stream);
+    }
+
+    record("safeClamp:start", { constraints: SAFE_CLAMP });
+
+    return Promise.resolve(videoTrack.applyConstraints(SAFE_CLAMP)).then(
+      () => {
+        record("safeClamp:ok", { settings: trackSettings(videoTrack) });
+        return stream;
+      },
+      (error) => {
+        record("safeClamp:error", errorInfo(error));
+        return stream;
+      }
+    );
+  }
+
+  function startDisplayCapture(constraints, receiver, source) {
+    const sanitized = state.config.sanitizeDisplay
+      ? C.sanitizeDisplayConstraints(constraints)
+      : constraints;
+
+    record(source === "gum" ? "gum:legacy-desktop" : "gdm:call", {
+      original: safeClone(constraints),
+      sanitized: safeClone(sanitized),
+    });
+
+    let result;
+    try {
+      result = nativeGetDisplayMedia.call(receiver, sanitized);
+    } catch (error) {
+      record("gdm:throw", errorInfo(error));
+      throw error;
+    }
+
+    const promise = Promise.resolve(result);
+    promise.then(attachStreamDiagnostics, (error) => {
+      record("gdm:error", errorInfo(error));
+    });
+
+    if (!state.config.safeClamp) {
+      return result;
+    }
+
+    return promise.then((stream) => clampStream(stream));
+  }
+
   if (typeof md.getDisplayMedia === "function") {
     nativeGetDisplayMedia = md.getDisplayMedia;
 
     const wrappedGetDisplayMedia = function getDisplayMedia(constraints) {
       const receiver = mediaDevicesReceiver(this);
-      if (!state.config.enabled || !state.config.sanitizeDisplay) {
+
+      if (!state.config.enabled) {
+        record("gdm:call", {
+          disabled: true,
+          original: safeClone(constraints),
+        });
         return nativeGetDisplayMedia.call(receiver, constraints);
       }
 
-      const sanitized = C.sanitizeDisplayConstraints(constraints);
-      record("gdm:call", {
-        original: safeClone(constraints),
-        sanitized: safeClone(sanitized),
-      });
-
-      let result;
-      try {
-        result = nativeGetDisplayMedia.call(receiver, sanitized);
-      } catch (error) {
-        record("gdm:throw", errorInfo(error));
-        throw error;
-      }
-
-      Promise.resolve(result).then(
-        (stream) => {
-          const tracks = stream && typeof stream.getTracks === "function"
-            ? stream.getTracks()
-            : [];
-          const videoTrack = stream && typeof stream.getVideoTracks === "function"
-            ? stream.getVideoTracks()[0] || null
-            : null;
-
-          record("gdm:success", {
-            tracks: tracks.map((track) => ({
-              kind: track.kind,
-              label: track.label || "",
-              readyState: track.readyState,
-            })),
-            settings: trackSettings(videoTrack),
-            constraints: trackConstraints(videoTrack),
-          });
-
-          if (videoTrack && typeof videoTrack.addEventListener === "function") {
-            videoTrack.addEventListener("ended", () => {
-              record("track:ended", {
-                label: videoTrack.label || "",
-                settings: trackSettings(videoTrack),
-              });
-            });
-          }
-        },
-        (error) => {
-          record("gdm:error", errorInfo(error));
-        }
-      );
-
-      return result;
+      return startDisplayCapture(constraints, receiver, "gdm");
     };
 
     Object.defineProperty(wrappedGetDisplayMedia, "__teamsShareFix", {
@@ -251,6 +381,7 @@
         value: wrappedGetDisplayMedia,
         configurable: true,
         writable: true,
+        enumerable: true,
       });
     } catch (error) {
       record("patch:gdm-instance-failed", errorInfo(error));
@@ -262,6 +393,7 @@
           value: wrappedGetDisplayMedia,
           configurable: true,
           writable: true,
+          enumerable: true,
         });
       }
     } catch (error) {
@@ -297,7 +429,12 @@
     });
 
     try {
-      W.MediaStreamTrack.prototype.applyConstraints = wrappedApplyConstraints;
+      Object.defineProperty(W.MediaStreamTrack.prototype, "applyConstraints", {
+        value: wrappedApplyConstraints,
+        configurable: true,
+        writable: true,
+        enumerable: true,
+      });
     } catch (error) {
       record("patch:applyConstraints-failed", errorInfo(error));
     }
@@ -308,6 +445,7 @@
 
     const wrappedGetUserMedia = function getUserMedia(constraints) {
       const receiver = mediaDevicesReceiver(this);
+
       if (
         !state.config.enabled ||
         !state.config.mapLegacyDesktop ||
@@ -322,12 +460,7 @@
       }
 
       const mapped = C.mapLegacyDesktopConstraints(legacySource);
-      record("gum:legacy-desktop", {
-        original: safeClone(constraints),
-        mapped: safeClone(mapped),
-      });
-
-      return nativeGetDisplayMedia.call(md, mapped);
+      return startDisplayCapture(mapped, receiver, "gum");
     };
 
     Object.defineProperty(wrappedGetUserMedia, "__teamsShareFix", {
@@ -340,6 +473,7 @@
         value: wrappedGetUserMedia,
         configurable: true,
         writable: true,
+        enumerable: true,
       });
     } catch (error) {
       record("patch:gum-instance-failed", errorInfo(error));
@@ -351,6 +485,7 @@
           value: wrappedGetUserMedia,
           configurable: true,
           writable: true,
+          enumerable: true,
         });
       }
     } catch (error) {
@@ -361,15 +496,17 @@
   W.__teamsShareFixReport = () => ({
     environment: getEnvironment(),
     events: state.events.slice(),
+    config: { ...state.config },
+    shim: { version: state.version, installedAt: state.installedAt },
   });
 
   W.__teamsShareFixSetConfig = (patch) => {
-    if (patch && typeof patch === "object") {
-      Object.assign(state.config, patch);
-      record("config:update", { ...state.config });
-    }
+    applyConfig(patch, undefined);
     return { ...state.config };
   };
 
-  record("shim:installed", { version: state.version });
+  record("shim:installed", {
+    version: state.version,
+    config: { ...state.config },
+  });
 })();

@@ -15,9 +15,58 @@
     <div id="status" class="status">Comprobando pestaña…</div>
 
     <div class="actions">
-      <button id="refresh" type="button">Analizar pestaña</button>
+      <button id="refresh" class="primary" type="button">Analizar pestaña</button>
       <button id="copy" type="button">Copiar informe</button>
     </div>
+
+    <details class="config" id="config-details">
+      <summary>Opciones del shim</summary>
+
+      <label class="check">
+        <input type="checkbox" id="enabled" />
+        <span>
+          <strong>Activar shim</strong>
+          <small>Desactívalo para comparar con el comportamiento nativo.</small>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="sanitizeDisplay" />
+        <span>
+          <strong>Corregir constraints</strong>
+          <small>Elimina <code>resizeMode:"none"</code> cuando hay topes de resolución/fps.</small>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="safeClamp" />
+        <span>
+          <strong>Safe clamp</strong>
+          <small>Intenta limitar el track a 1920×1080@15 antes de entregarlo a Teams.</small>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="mapLegacyDesktop" />
+        <span>
+          <strong>Mapear <code>chromeMediaSource</code></strong>
+          <small>Convierte peticiones legacy de escritorio en <code>getDisplayMedia</code>.</small>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="debug" />
+        <span>
+          <strong>Log de depuración</strong>
+          <small>Escribe eventos del shim en la consola de la página.</small>
+        </span>
+      </label>
+
+      <div class="config-actions">
+        <button id="reset" type="button">Restablecer</button>
+        <span id="config-status" class="config-status" aria-live="polite"></span>
+      </div>
+    </details>
 
     <pre id="report" aria-live="polite"></pre>
 
@@ -26,6 +75,7 @@
       en tu equipo y no se envía a ningún servidor.
     </p>
 
+    <script src="../src/config-defaults.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

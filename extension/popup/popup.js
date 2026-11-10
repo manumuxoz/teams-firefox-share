@@ -1,15 +1,28 @@
 /*
  * Popup controller. Reads the MAIN-world diagnostics object through
- * scripting.executeScript; no data leaves the browser.
+ * scripting.executeScript and stores shim options in browser.storage.local.
+ * No data leaves the browser.
  *
  * SPDX-License-Identifier: MPL-2.0
  */
 "use strict";
 
+const { DEFAULTS, normalizeConfig } = window.__teamsShareConfig;
+
 const statusEl = document.getElementById("status");
 const reportEl = document.getElementById("report");
 const refreshButton = document.getElementById("refresh");
 const copyButton = document.getElementById("copy");
+const resetButton = document.getElementById("reset");
+const configStatusEl = document.getElementById("config-status");
+
+const controls = {
+  enabled: document.getElementById("enabled"),
+  sanitizeDisplay: document.getElementById("sanitizeDisplay"),
+  safeClamp: document.getElementById("safeClamp"),
+  mapLegacyDesktop: document.getElementById("mapLegacyDesktop"),
+  debug: document.getElementById("debug"),
+};
 
 let lastReportText = "";
 
@@ -18,17 +31,57 @@ function setStatus(text, kind = "") {
   statusEl.className = `status ${kind}`.trim();
 }
 
+function setConfigStatus(text) {
+  configStatusEl.textContent = text;
+}
+
 function isTeamsUrl(url) {
   try {
     const host = new URL(url).hostname;
     return (
       host === "teams.microsoft.com" ||
       host === "teams.cloud.microsoft" ||
-      host === "teams.live.com" ||
-      host.endsWith(".teams.microsoft.com")
+      host === "teams.live.com"
     );
   } catch (_) {
     return false;
+  }
+}
+
+function renderConfig(config) {
+  for (const [key, element] of Object.entries(controls)) {
+    element.checked = Boolean(config[key]);
+  }
+}
+
+function readConfigFromUi() {
+  const next = {};
+  for (const [key, element] of Object.entries(controls)) {
+    next[key] = element.checked;
+  }
+  return normalizeConfig(next);
+}
+
+async function loadConfig() {
+  try {
+    const stored = await browser.storage.local.get("config");
+    const config = normalizeConfig(stored && stored.config);
+    renderConfig(config);
+    return config;
+  } catch (_) {
+    renderConfig(DEFAULTS);
+    return { ...DEFAULTS };
+  }
+}
+
+async function saveConfig() {
+  const config = readConfigFromUi();
+  try {
+    await browser.storage.local.set({ config });
+    setConfigStatus("Guardado; se aplica en la próxima compartición.");
+    window.setTimeout(() => setConfigStatus(""), 3000);
+  } catch (error) {
+    setConfigStatus(`No se pudo guardar: ${error.message}`);
   }
 }
 
@@ -89,10 +142,11 @@ async function collectReport() {
   const gdmCalls = events.filter((event) => event.type === "gdm:call").length;
   const gdmErrors = events.filter((event) => event.type === "gdm:error").length;
   const ended = events.filter((event) => event.type === "track:ended").length;
+  const clampErrors = events.filter((event) => event.type === "safeClamp:error").length;
 
-  if (gdmErrors > 0 || ended > 0) {
+  if (gdmErrors > 0 || ended > 0 || clampErrors > 0) {
     setStatus(
-      `Shim activo. ${gdmCalls} llamada(s) a getDisplayMedia, ${gdmErrors} error(es), ${ended} track(s) terminado(s).`,
+      `Shim activo. ${gdmCalls} llamada(s) a getDisplayMedia, ${gdmErrors} error(es), ${ended} track(s) terminado(s), ${clampErrors} error(es) de clamp.`,
       "warn"
     );
   } else if (gdmCalls > 0) {
@@ -122,6 +176,19 @@ async function copyReport() {
   }
 }
 
+for (const element of Object.values(controls)) {
+  element.addEventListener("change", () => {
+    saveConfig().catch((error) => {
+      setConfigStatus(`Error inesperado: ${error.message}`);
+    });
+  });
+}
+
+resetButton.addEventListener("click", async () => {
+  renderConfig(DEFAULTS);
+  await saveConfig();
+});
+
 refreshButton.addEventListener("click", () => {
   collectReport().catch((error) => {
     setStatus(`Error inesperado: ${error.message}`, "fail");
@@ -134,6 +201,8 @@ copyButton.addEventListener("click", () => {
   });
 });
 
-collectReport().catch((error) => {
-  setStatus(`Error inesperado: ${error.message}`, "fail");
-});
+loadConfig()
+  .then(() => collectReport())
+  .catch((error) => {
+    setStatus(`Error inesperado: ${error.message}`, "fail");
+  });

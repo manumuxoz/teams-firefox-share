@@ -1,15 +1,24 @@
 {
   "name": "teams-firefox-share",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Firefox screen-sharing compatibility and diagnostics for Microsoft Teams on Linux.",
   "license": "MPL-2.0",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "lint:extension": "web-ext lint --source-dir extension",
-    "build": "web-ext build --source-dir extension --artifacts-dir dist"
+    "test:py": "python3 -m unittest discover -s tests -p 'test_*.py'",
+    "lint:js": "node --check extension/src/config-defaults.js && node --check extension/src/lib/constraints.js && node --check extension/src/config-bridge.js && node --check extension/src/shim.js && node --check extension/popup/popup.js && python3 -m py_compile tools/teams-ss-doctor",
+    "lint:extension": "web-ext lint --source-dir extension --warnings-as-errors",
+    "lint": "npm run lint:js && npm run lint:extension",
+    "build": "web-ext build --source-dir extension --artifacts-dir dist --overwrite-dest --filename 'teams-screenshare-fix-{version}.xpi'",
+    "smoke": "scripts/smoke-extension.sh",
+    "package": "npm run build && scripts/package.sh",
+    "ci": "npm ci && npm run lint && npm test && npm run test:py && npm run build && npm run smoke && npm run package"
   },
   "devDependencies": {
-    "web-ext": "^8.0.0"
+    "web-ext": "^10.8.0"
   }
 }

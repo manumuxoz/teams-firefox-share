@@ -32,6 +32,19 @@
 
 **Recomendación inmediata:** antes de escribir la extensión, ejecutar la Fase 0 de este plan. En tu máquina concreta, actualizar XDPH a 1.5.0 o probar `force_shm = true` es más probable que arregle el fallo que cualquier parche JavaScript.
 
+### 0.1 Estado de implementación (2026-11-10)
+
+Implementado en este repositorio:
+
+- [x] Fase 1 — MVP: extensión MV3, shim de constraints, popup de diagnóstico, doctor read-only, tests y documentación.
+- [x] Fase 2 — configuración persistente, config bridge aislado, safe clamp opcional, toggles, CI, empaquetado `.xpi`.
+- [x] Fase 3 parcial — fixes opt-in del doctor (`force_shm`, picker legacy, reinicio del portal), perfil dedicado y lanzador X11.
+- [ ] Validación end-to-end en un tenant real de Teams (requiere cuenta y reunión).
+- [ ] Firma y publicación en AMO (requiere credenciales).
+- [ ] Actualización de XDPH a 1.5.0 en la máquina de referencia (decisión del operador).
+
+Pipeline fijo: `make ci` → `deps → lint → test → build → smoke → package`. Ver `docs/PIPELINE.md`.
+
 ---
 
 ## 1. Contexto: qué cambió y qué se rompe ahora
@@ -212,7 +225,7 @@ y después clona el track y aplica constraints con `resizeMode:"none"` y `width:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Firefox 128+ / 153 ESR                                       │
+│ Firefox 142+ / 153 ESR                                       │
 │                                                              │
 │  Teams Web (teams.microsoft.com / cloud / live)              │
 │    │                                                         │
@@ -248,39 +261,51 @@ teams-firefox-share/
 ├── PLAN.md
 ├── README.md
 ├── LICENSE
-├── .gitignore
+├── CHANGELOG.md
+├── Makefile
+├── package.json
 ├── extension/
 │   ├── manifest.json
 │   ├── src/
+│   │   ├── config-defaults.js
+│   │   ├── config-bridge.js
 │   │   ├── lib/constraints.js
-│   │   ├── shim.js
-│   │   └── diagnostics.js
-│   ├── popup/
-│   │   ├── popup.html
-│   │   ├── popup.js
-│   │   └── popup.css
-│   └── icons/
+│   │   └── shim.js
+│   └── popup/
+│       ├── popup.html
+│       ├── popup.js
+│       └── popup.css
 ├── tools/
-│   ├── teams-ss-doctor
-│   └── lib/
-│       ├── checks.py
-│       └── fixes.py
+│   └── teams-ss-doctor
 ├── profile/
 │   ├── user.js
 │   └── README.md
 ├── scripts/
 │   ├── README.md
-│   └── run-firefox-x11.sh
+│   ├── run-firefox-x11.sh
+│   ├── smoke-extension.sh
+│   └── package.sh
 ├── tests/
+│   ├── config.test.mjs
+│   ├── config-bridge.test.mjs
 │   ├── constraints.test.mjs
-│   └── test_doctor.py
+│   ├── manifest.test.mjs
+│   ├── shim.test.mjs
+│   ├── test_doctor.py
+│   ├── fixtures/gdm.html
+│   └── integration/test_extension.py
 ├── docs/
 │   ├── DIAGNOSIS.md
 │   ├── RESEARCH.md
 │   ├── LIMITATIONS.md
+│   ├── AUDIO.md
+│   ├── PIPELINE.md
 │   └── AMO.md
-├── .github/workflows/ci.yml
-└── package.json
+└── .github/
+    ├── workflows/ci.yml
+    ├── workflows/release.yml
+    ├── workflows/amo-sign.yml
+    └── ISSUE_TEMPLATE/bug_report.md
 ```
 
 ---
@@ -289,20 +314,19 @@ teams-firefox-share/
 
 ### 5.1 Manifest (MV3)
 
+El manifest real está en `extension/manifest.json`. Resumen:
+
 ```json
 {
   "manifest_version": 3,
-  "name": "Teams Screen Share Fix (Unofficial)",
-  "version": "0.1.0",
-  "description": "Workarounds and diagnostics for Microsoft Teams screen sharing in Firefox on Linux.",
+  "version": "0.2.0",
   "browser_specific_settings": {
     "gecko": {
-      "id": "teams-screenshare-fix@local",
-      "strict_min_version": "128.0",
+      "strict_min_version": "142.0",
       "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "permissions": ["storage", "scripting", "activeTab"],
+  "permissions": ["storage", "scripting"],
   "host_permissions": [
     "*://teams.microsoft.com/*",
     "*://teams.cloud.microsoft/*",
@@ -310,30 +334,31 @@ teams-firefox-share/
   ],
   "content_scripts": [
     {
-      "matches": [
-        "*://teams.microsoft.com/*",
-        "*://teams.cloud.microsoft/*",
-        "*://teams.live.com/*"
-      ],
       "run_at": "document_start",
       "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
       "world": "MAIN",
-      "js": ["src/lib/constraints.js", "src/shim.js"]
+      "js": ["src/config-defaults.js", "src/lib/constraints.js", "src/shim.js"]
+    },
+    {
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "js": ["src/config-defaults.js", "src/config-bridge.js"]
     }
-  ],
-  "action": {
-    "default_title": "Teams Screen Share Fix",
-    "default_popup": "popup/popup.html"
-  }
+  ]
 }
 ```
 
 Notas:
 
-- `world: "MAIN"` requiere Firefox 128+. Es la vía recomendada; evita Xray y CSP.
+- `world: "MAIN"` requiere Firefox 128+. El manifest fija `strict_min_version: 142.0` para poder usar `data_collection_permissions` (AMO lo exige desde 2025-11). Es la vía recomendada; evita Xray y CSP.
+- El segundo content script corre en el mundo aislado y hace de puente entre `browser.storage.local` y el shim.
 - `all_frames: true` cubre iframes same-origin y cross-origin donde Teams pueda llamar a la captura.
 - No se usa `<script src="moz-extension://...">` porque la CSP de Teams lo bloquea.
-- No se usa `exportFunction` en el MVP; se documenta como fallback para ESR <128.
+- No se usa `exportFunction` en el MVP; se documenta como fallback para forks antiguos.
 
 ### 5.2 Shim de constraints
 
@@ -449,7 +474,7 @@ Esto permite que ambos parches convivan: si Mozilla ya eliminó `resizeMode`, el
 
 ### 5.7 Permisos y privacidad
 
-- Solo `storage`, `scripting`, `activeTab`.
+- Solo `storage` y `scripting`; `activeTab` no es necesario porque hay host permissions explícitos.
 - Host permissions limitados a los tres dominios de Teams.
 - Sin telemetría, sin red, sin `eval`, sin código remoto.
 - `data_collection_permissions: { required: ["none"] }`.
@@ -476,18 +501,18 @@ Dar un informe accionable, en texto o JSON, sin modificar nada por defecto. Los 
 | ID | Comprobación | Cómo | Resultado |
 |---|---|---|---|
 | `session` | `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, `DISPLAY`, `MOZ_ENABLE_WAYLAND` | entorno | PASS/WARN/FAIL |
-| `firefox` | versión, binario, `browser/omni.ja` | `firefox --version`, `zipfile` | INFO |
-| `webcompat` | intervención 2000906 y dominios | leer `omni.ja` | PASS/FAIL |
+| `firefox` | versión, binario, `browser/omni.ja` | `firefox --version`, `zipfile` | PASS/WARN/FAIL |
+| `webcompat` | intervención 2000906 y dominios | leer `omni.ja` | PASS/WARN |
 | `prefs` | `media.webrtc.capture.allow-pipewire`, `media.navigator.video.resize_mode.enabled`, `media.gmp-gmpopenh264.enabled` | `prefs.js` | PASS/WARN |
-| `openh264` | `libgmpopenh264.so` y versión | perfiles Firefox | PASS/FAIL |
-| `portal` | servicio y versión ScreenCast | `gdbus` | PASS/FAIL |
-| `backend` | `.portal` con `ScreenCast` y `UseIn` | `/usr/share/xdg-desktop-portal/portals/*.portal` | PASS/FAIL |
-| `pipewire` | servicios y versión | `systemctl --user`, `pipewire --version` | PASS/FAIL |
-| `xdph` | versión y bug de freeze | `dpkg-query`/`rpm`, release notes | WARN si 1.4.0/1.4.1 |
+| `openh264` | `libgmpopenh264.so` y versión | perfiles Firefox | PASS/WARN/FAIL |
+| `portal` | servicio y versión ScreenCast | `gdbus` | PASS/WARN/FAIL/INFO |
+| `backend` | `.portal` con `ScreenCast` y `UseIn` | `$XDG_DATA_HOME`/`$XDG_DATA_DIRS` + `/usr/share/...` | PASS/WARN/FAIL |
+| `pipewire` | servicios y versión | `systemctl --user`, `pipewire --version` | PASS/WARN/INFO |
+| `xdph` | versión y bug de freeze | `dpkg-query`/`rpm`/`pacman`/binario, release notes | WARN si 1.4.0/1.4.1 |
 | `xdph-config` | `force_shm`, `custom_picker_binary` | `~/.config/hypr/xdph.conf` | INFO/WARN |
-| `logs` | `Session destroyed`, `Out of buffers`, `selection -1` | `journalctl --user` | INFO/WARN |
-| `teams` | reachability de hosts | `urllib` con UA Firefox | INFO |
-| `gpu` | NVIDIA / multi-GPU | `lspci`, `lsmod` | WARN si NVIDIA |
+| `logs` | `Out of buffers` (duro); `Session destroyed`, `selection -1`, `DMA-BUF` (info) | `journalctl --user --since -24h` | INFO/WARN |
+| `teams` | reachability de hosts | `urllib` con UA Firefox | PASS/WARN |
+| `gpu` | NVIDIA / multi-GPU | `lspci`, `lsmod` | WARN/INFO |
 
 ### 6.3 Salida
 
@@ -503,7 +528,7 @@ Backend: xdg-desktop-portal-hyprland ....... PASS
 XDPH: 1.4.1 ................................ WARN (freeze fix en 1.5.0; ver --fix xdph-force-shm)
 PipeWire: 1.4.2 / WirePlumber 0.5.12 ....... PASS
 xdph.conf: sin force_shm ................... INFO
-Logs: 8 sesiones destruidas a las 12:05 .... WARN
+Logs: sesiones cerradas, sin out-of-buffers .. INFO
 
 Diagnóstico probable: portal Wayland (Modo C), no Teams.
 Siguiente paso: probar force_shm o actualizar XDPH; si persiste, XWayland/X11.
@@ -514,9 +539,11 @@ Siguiente paso: probar force_shm o actualizar XDPH; si persiste, XWayland/X11.
 - `--fix xdph-force-shm`: añade `screencopy { force_shm = true }` a `~/.config/hypr/xdph.conf`, con backup `.bak.<timestamp>`.
 - `--fix xdph-legacy-picker`: fija `custom_picker_binary = hyprland-share-picker`.
 - `--fix restart-portal`: reinicia `xdg-desktop-portal-hyprland` y `xdg-desktop-portal`.
-- `--print-x11-command`: imprime `MOZ_ENABLE_WAYLAND=0 firefox` para probar XWayland.
-- `--json`: salida machine-readable para issues.
+- `--fix x11-command`: imprime `MOZ_ENABLE_WAYLAND=0 firefox` para probar XWayland.
+- `--json`: salida machine-readable para issues; no se combina con `--fix`.
+- `--output FILE`: escribe el JSON en un archivo.
 - `--dry-run`: muestra los cambios sin aplicarlos.
+- `--force`: permite `force_shm` aunque XDPH sea >= 1.5.0.
 
 **No** se automatiza la instalación de paquetes ni la compilación de XDPH; solo se documenta.
 
@@ -560,37 +587,38 @@ Objetivo: determinar si el fallo es de Teams, constraints o portal.
 
 ### Fase 1 — MVP del repositorio (1–2 días)
 
-- [ ] Crear scaffold del repo y `README.md`.
-- [ ] Extensión MV3 con `constraints.js` + `shim.js`.
-- [ ] Popup con informe y copia al portapapeles.
-- [ ] Doctor read-only con checks de sesión, portal, XDPH, OpenH264 y WebCompat.
-- [ ] Tests unitarios de constraints con Node.
-- [ ] `docs/DIAGNOSIS.md` y `docs/LIMITATIONS.md`.
-- [ ] Cargar la extensión temporalmente en Firefox 153 y verificar que el shim se instala antes que Teams.
-- [ ] Ejecutar el doctor en esta máquina y validar el informe.
+- [x] Crear scaffold del repo y `README.md`.
+- [x] Extensión MV3 con `constraints.js` + `shim.js`.
+- [x] Popup con informe y copia al portapapeles.
+- [x] Doctor read-only con checks de sesión, portal, XDPH, OpenH264 y WebCompat.
+- [x] Tests unitarios de constraints con Node.
+- [x] `docs/DIAGNOSIS.md` y `docs/LIMITATIONS.md`.
+- [x] Cargar la extensión temporalmente en Firefox 153 y verificar que el shim se instala antes que Teams.
+- [x] Ejecutar el doctor en esta máquina y validar el informe.
 
 **Criterio de aceptación:** en una página de prueba local, `getDisplayMedia({video:{resizeMode:"none",width:{max:1920},...}})` llega al nativo sin `resizeMode`; el popup muestra el informe; el doctor detecta XDPH 1.4.1 y OpenH264 2.6.0.
 
 ### Fase 2 — Producto mínimo publicable (1 semana)
 
-- [ ] Toggles en el popup: shim on/off, safe clamp, legacy mapping.
-- [ ] `safe clamp` opcional: tras adquirir el stream, aplicar `width:1920,height:1080,frameRate:15` al track antes de devolverlo.
-- [ ] Tests de `applyConstraints` y `getUserMedia` legacy.
-- [ ] `web-ext lint` y CI en GitHub Actions.
-- [ ] Empaquetado `.xpi` y firma en AMO (unlisted).
-- [ ] `docs/AMO.md` con justificación de permisos y privacidad.
-- [ ] Plantilla de issue con salida del doctor.
+- [x] Toggles en el popup: shim on/off, safe clamp, legacy mapping.
+- [x] `safe clamp` opcional: tras adquirir el stream, aplicar `width:1920,height:1080,frameRate:15` al track antes de devolverlo.
+- [x] Tests de `applyConstraints` y `getUserMedia` legacy.
+- [x] `web-ext lint` y CI en GitHub Actions.
+- [x] Empaquetado `.xpi`.
+- [ ] Firma en AMO (unlisted); requiere credenciales.
+- [x] `docs/AMO.md` con justificación de permisos y privacidad.
+- [x] Plantilla de issue con salida del doctor.
 
 **Criterio de aceptación:** `web-ext lint` sin errores; la extensión firmada se instala en Firefox 153; una reunión de prueba comparte pantalla durante 10 minutos sin regresión de cámara.
 
 ### Fase 3 — Workarounds de sistema y adopción (2–3 semanas)
 
-- [ ] `--fix xdph-force-shm` con backup y `--dry-run`.
-- [ ] `--fix xdph-legacy-picker`.
-- [ ] `scripts/run-firefox-x11.sh` y perfil dedicado.
-- [ ] Plantilla `profile/user.js` para PWAsForFirefox.
-- [ ] Detección de NVIDIA/multi-GPU y recomendación específica.
-- [ ] Documentar el workaround de audio con PipeWire.
+- [x] `--fix xdph-force-shm` con backup y `--dry-run`.
+- [x] `--fix xdph-legacy-picker`.
+- [x] `scripts/run-firefox-x11.sh` y perfil dedicado.
+- [x] Plantilla `profile/user.js` para PWAsForFirefox.
+- [x] Detección de NVIDIA/multi-GPU y recomendación específica.
+- [x] Documentar el workaround de audio con PipeWire.
 - [ ] Release 1.0 y publicación listed en AMO (si la revisión lo permite).
 
 **Criterio de aceptación:** un usuario con Hyprland 1.4.1 puede seguir el informe del doctor y resolver el Modo C sin editar archivos a mano.
@@ -652,11 +680,13 @@ Verificar:
 ### 8.4 CI
 
 - `npm test` → Node test runner.
-- `npx web-ext lint --source-dir extension`.
+- `npx web-ext lint --source-dir extension --warnings-as-errors`.
 - `python -m unittest discover -s tests`.
-- `shellcheck scripts/*.sh`.
+- `bash -n scripts/*.sh` y `python3 -m py_compile tools/teams-ss-doctor`.
 - Validación JSON de `manifest.json`.
-- Sin secretos, sin red en tests.
+- Smoke test con Firefox headless (`scripts/smoke-extension.sh`).
+- Empaquetado `.xpi` + `SHA256SUMS`.
+- Sin secretos, sin red en tests unitarios.
 
 ---
 

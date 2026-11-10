@@ -24,7 +24,7 @@ Este proyecto es deliberadamente honesto sobre lo que puede y no puede hacer. Si
 
 **Por qué no se puede arreglar desde JavaScript:** Firefox no implementa captura de audio en `getDisplayMedia` (bug 1541425). `getDisplayMedia({audio:true})` no devuelve una pista de audio.
 
-**Qué hacer:** usar Chromium/Edge, o un workaround de PipeWire con `module-remap-source` del monitor del sink como micrófono virtual. No es parte del MVP.
+**Qué hacer:** usar Chromium/Edge, o un workaround de PipeWire con `module-remap-source` del monitor del sink como micrófono virtual. Ver [AUDIO.md](AUDIO.md).
 
 ## 4. Llamadas 1:1
 

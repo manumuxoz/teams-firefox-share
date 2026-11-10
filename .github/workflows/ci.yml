@@ -2,11 +2,18 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -14,21 +21,38 @@ jobs:
       - name: Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
-      - name: Install web-ext
-        run: npm install
-
-      - name: Unit tests (constraints)
-        run: npm test
-
-      - name: Lint extension
-        run: npm run lint:extension
+          node-version: "22"
+          cache: npm
 
       - name: Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Doctor tests
-        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Firefox ESR
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest-esr
+
+      - name: Runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0t64 || sudo apt-get install -y libgtk-3-0
+          sudo apt-get install -y libdbus-glib-1-2
+          sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
+
+      - name: Fixed pipeline
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+        run: make ci
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: teams-screenshare-fix
+          path: |
+            dist/*.xpi
+            dist/*-sources.zip
+            dist/SHA256SUMS
+          if-no-files-found: error

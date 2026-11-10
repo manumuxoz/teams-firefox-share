@@ -6,12 +6,11 @@ La extensión parchea APIs de captura en los dominios de Teams. Es un caso legí
 
 | Permiso | Motivo |
 |---|---|
-| `storage` | Reservado para toggles de la Fase 2; el MVP no guarda datos. |
+| `storage` | Guardar los toggles del shim (`enabled`, `sanitizeDisplay`, `safeClamp`, `mapLegacyDesktop`, `debug`). |
 | `scripting` | El popup lee el informe de diagnóstico del mundo de la página. |
-| `activeTab` | Permite analizar la pestaña activa cuando el usuario pulsa la acción. |
-| `host_permissions` de Teams | Inyectar el shim en `teams.microsoft.com`, `teams.cloud.microsoft` y `teams.live.com`. |
+| `host_permissions` de Teams | Inyectar el shim y el config bridge en `teams.microsoft.com`, `teams.cloud.microsoft` y `teams.live.com`. |
 
-No se piden permisos de cámara, micrófono, historial, descargas ni acceso a todos los sitios.
+No se piden permisos de cámara, micrófono, historial, descargas, `activeTab` ni acceso a todos los sitios.
 
 ## Privacidad
 
@@ -26,7 +25,9 @@ No se piden permisos de cámara, micrófono, historial, descargas ni acceso a to
 1. En `document_start` y en el mundo MAIN, envuelve `getDisplayMedia`, `applyConstraints` y `getUserMedia`.
 2. Elimina `resizeMode: "none"` cuando Teams lo combina con topes de resolución/fps. Es la misma corrección que la intervención WebCompat 2000906 de Mozilla, con composición idempotente.
 3. Mapea peticiones legacy `chromeMediaSource` a `getDisplayMedia`.
-4. Registra un buffer local de eventos para diagnóstico.
+4. Aplica un safe clamp opcional a 1920×1080@15 antes de devolver el track a Teams.
+5. Un content script aislado lee `browser.storage.local` y envía la configuración al shim con `window.postMessage`; no se ejecuta código remoto.
+6. Registra un buffer local de eventos para diagnóstico.
 
 ## Qué no hace
 

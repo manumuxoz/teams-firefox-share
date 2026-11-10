@@ -14,8 +14,9 @@ El plan completo, con evidencia, diagnóstico y roadmap, está en **[PLAN.md](PL
 
 ## Estado
 
-- **Fase:** prototipo inicial / prueba de concepto.
-- **Firefox objetivo:** 128+; validado en 153.6.0esr.
+- **Versión:** 0.2.0.
+- **Fase:** MVP publicable / pruebas end-to-end pendientes en un tenant real.
+- **Firefox objetivo:** 142+ (por `data_collection_permissions`); validado en 153.6.0esr.
 - **Sistemas:** Linux. Wayland con `xdg-desktop-portal` + PipeWire; X11 también documentado.
 - **Teams:** `teams.microsoft.com`, `teams.cloud.microsoft`, `teams.live.com`.
 - **Licencia:** MPL-2.0.
@@ -51,12 +52,13 @@ Si detecta `xdg-desktop-portal-hyprland` 1.4.0/1.4.1, leer la sección “Waylan
 
 La extensión es un shim de compatibilidad y un panel de diagnóstico. No envía datos a ningún sitio.
 
-### 3. Tests
+### 3. Pipeline
 
 ```bash
-npm test
-python3 -m unittest discover -s tests -p 'test_*.py'
+make ci
 ```
+
+Ejecuta `deps → lint → test → build → smoke → package` y deja los artefactos en `dist/`. Ver [docs/PIPELINE.md](docs/PIPELINE.md).
 
 ---
 
@@ -64,6 +66,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 - Elimina `resizeMode: "none"` cuando Teams lo combina con topes de resolución/fps, replicando y complementando la intervención WebCompat 2000906 de Mozilla.
 - Mapea peticiones legacy `getUserMedia({video:{mandatory:{chromeMediaSource:"desktop"}}})` a `getDisplayMedia`, para que no enciendan la cámara.
+- Ofrece un **safe clamp** opcional a 1920×1080@15 antes de entregar el track a Teams.
+- Configuración persistente desde el popup: activar/desactivar shim, sanitizar constraints, safe clamp, mapeo legacy y log de depuración.
 - Registra constraints, settings del track, codecs, errores y eventos `ended`.
 - Expone un informe local que el popup puede copiar.
 
@@ -80,11 +84,14 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 ## Estructura
 
 ```text
-extension/        Extensión Firefox MV3 (shim + diagnóstico)
+extension/        Extensión Firefox MV3 (shim, config bridge y diagnóstico)
 tools/            Doctor CLI en Python 3 (solo stdlib)
-docs/             Diagnóstico, investigación y límites
-tests/            Tests de constraints y helpers del doctor
+docs/             Diagnóstico, investigación, límites y pipeline
+tests/            Tests JS y Python, más fixture de getDisplayMedia
+profile/          Perfil dedicado y prefs seguras
+scripts/          Smoke test, empaquetado y lanzador X11
 PLAN.md           Plan completo, evidencia y roadmap
+Makefile          Pipeline fijo: make ci
 ```
 
 ## Documentación
@@ -93,6 +100,18 @@ PLAN.md           Plan completo, evidencia y roadmap
 - [docs/DIAGNOSIS.md](docs/DIAGNOSIS.md) — árbol de decisión y comandos.
 - [docs/LIMITATIONS.md](docs/LIMITATIONS.md) — lo que no se puede arreglar.
 - [docs/RESEARCH.md](docs/RESEARCH.md) — evidencia externa y enlaces.
+- [docs/PIPELINE.md](docs/PIPELINE.md) — pipeline local/CI, release y AMO.
+- [docs/AUDIO.md](docs/AUDIO.md) — límite de audio de Firefox y workaround con PipeWire.
+- [docs/AMO.md](docs/AMO.md) — permisos, privacidad y revisión.
+
+## Tests
+
+```bash
+npm test
+python3 -m unittest discover -s tests -p 'test_*.py'
+```
+
+Actualmente: 45 tests JS y 34 tests Python.
 
 ## Contribuir
 
