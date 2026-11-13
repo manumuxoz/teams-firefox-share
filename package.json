@@ -4,6 +4,27 @@
   "private": true,
   "description": "Firefox screen-sharing compatibility and diagnostics for Microsoft Teams on Linux.",
   "license": "MPL-2.0",
+  "author": "manumuxoz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manumuxoz/teams-firefox-share.git"
+  },
+  "bugs": {
+    "url": "https://github.com/manumuxoz/teams-firefox-share/issues"
+  },
+  "homepage": "https://github.com/manumuxoz/teams-firefox-share#readme",
+  "keywords": [
+    "firefox",
+    "firefox-extension",
+    "microsoft-teams",
+    "webrtc",
+    "wayland",
+    "pipewire",
+    "hyprland",
+    "linux",
+    "screen-sharing",
+    "getdisplaymedia"
+  ],
   "engines": {
     "node": ">=20"
   },

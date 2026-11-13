@@ -262,6 +262,9 @@ teams-firefox-share/
 ├── README.md
 ├── LICENSE
 ├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── CODE_OF_CONDUCT.md
 ├── Makefile
 ├── package.json
 ├── extension/
@@ -300,12 +303,18 @@ teams-firefox-share/
 │   ├── LIMITATIONS.md
 │   ├── AUDIO.md
 │   ├── PIPELINE.md
-│   └── AMO.md
+│   ├── AMO.md
+│   └── GITHUB.md
 └── .github/
     ├── workflows/ci.yml
     ├── workflows/release.yml
     ├── workflows/amo-sign.yml
-    └── ISSUE_TEMPLATE/bug_report.md
+    ├── dependabot.yml
+    ├── pull_request_template.md
+    └── ISSUE_TEMPLATE/
+        ├── bug_report.md
+        ├── feature_request.md
+        └── config.yml
 ```
 
 ---

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Diagnóstico y límites conocidos
+    url: https://github.com/manumuxoz/teams-firefox-share/blob/main/docs/DIAGNOSIS.md
+    about: Antes de abrir un issue, revisa el árbol de decisión y los límites del proyecto.
+  - name: Reporte privado de seguridad
+    url: https://github.com/manumuxoz/teams-firefox-share/security/advisories/new
+    about: No publiques vulnerabilidades en un issue público.

@@ -1,5 +1,8 @@
 # teams-firefox-share
 
+[![CI](https://github.com/manumuxoz/teams-firefox-share/actions/workflows/ci.yml/badge.svg)](https://github.com/manumuxoz/teams-firefox-share/actions/workflows/ci.yml)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+
 **Compartir pantalla de Microsoft Teams en Firefox sobre Linux — sin magia y sin promesas falsas.**
 
 Este repositorio nace de un caso real: Firefox 153 ESR + Hyprland/Wayland + Teams for Web. El objetivo no es “hacer que Teams crea que Firefox es Chrome”, sino separar tres problemas que la mayoría de guías mezclan:
@@ -103,6 +106,10 @@ Makefile          Pipeline fijo: make ci
 - [docs/PIPELINE.md](docs/PIPELINE.md) — pipeline local/CI, release y AMO.
 - [docs/AUDIO.md](docs/AUDIO.md) — límite de audio de Firefox y workaround con PipeWire.
 - [docs/AMO.md](docs/AMO.md) — permisos, privacidad y revisión.
+- [docs/GITHUB.md](docs/GITHUB.md) — publicación, metadatos y checklist de GitHub.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — cómo contribuir y qué reglas sigue el shim.
+- [SECURITY.md](SECURITY.md) — reporte privado de vulnerabilidades.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — normas de convivencia del proyecto.
 
 ## Tests
 
@@ -114,6 +121,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 Actualmente: 45 tests JS y 34 tests Python.
 
 ## Contribuir
+
+Lee [CONTRIBUTING.md](CONTRIBUTING.md). Para vulnerabilidades, usa [SECURITY.md](SECURITY.md), no un issue público.
 
 Antes de abrir un issue, adjunta:
 
