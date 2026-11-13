@@ -65,6 +65,46 @@ Ejecuta `deps → lint → test → build → smoke → package` y deja los arte
 
 ---
 
+## Requisitos
+
+- Firefox **142+** (el manifest usa `data_collection_permissions`).
+- Linux con Wayland/PipeWire o X11. En Wayland se necesita `xdg-desktop-portal` y un backend ScreenCast.
+- Teams for Web en una **reunión**; las llamadas 1:1 no están soportadas por Microsoft en Firefox.
+- Para el doctor: Python 3.13+; `gdbus` y `journalctl` son opcionales.
+- Para desarrollar: Node.js 20+.
+
+## Instalación permanente (AMO)
+
+El `.xpi` que produce `make build` **no está firmado**. Firefox release solo lo instalará en modo desarrollador (`about:debugging`) o con una firma de AMO.
+
+Para una instalación permanente:
+
+1. Publica o firma la extensión en AMO (`docs/AMO.md` y `docs/GITHUB.md`).
+2. Instala el `.xpi` firmado desde la ficha de AMO o desde `dist/signed/` si usas `web-ext sign`.
+3. No presentes el `.xpi` sin firmar de GitHub Releases como instalable permanente.
+
+## Compilar desde fuente
+
+```bash
+npm ci
+make ci
+```
+
+El artefacto queda en:
+
+```text
+dist/teams-screenshare-fix-0.2.0.xpi
+```
+
+Para cargarlo temporalmente: `about:debugging#/runtime/this-firefox` → “Cargar complemento temporal” → `extension/manifest.json`.
+
+La integración real opcional requiere Selenium y geckodriver:
+
+```bash
+python3 -m pip install selenium
+GECKODRIVER=/ruta/geckodriver make integration
+```
+
 ## Qué hace la extensión
 
 - Elimina `resizeMode: "none"` cuando Teams lo combina con topes de resolución/fps, replicando y complementando la intervención WebCompat 2000906 de Mozilla.
@@ -107,6 +147,7 @@ Makefile          Pipeline fijo: make ci
 - [docs/AUDIO.md](docs/AUDIO.md) — límite de audio de Firefox y workaround con PipeWire.
 - [docs/AMO.md](docs/AMO.md) — permisos, privacidad y revisión.
 - [docs/GITHUB.md](docs/GITHUB.md) — publicación, metadatos y checklist de GitHub.
+- [docs/PRIVACY.md](docs/PRIVACY.md) — qué datos toca (y qué no) la extensión y el doctor.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — cómo contribuir y qué reglas sigue el shim.
 - [SECURITY.md](SECURITY.md) — reporte privado de vulnerabilidades.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — normas de convivencia del proyecto.
@@ -118,7 +159,7 @@ npm test
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-Actualmente: 45 tests JS y 34 tests Python.
+Actualmente: 49 tests JS y 34 tests Python.
 
 ## Contribuir
 
@@ -132,3 +173,7 @@ Antes de abrir un issue, adjunta:
 - Si es posible, informe del popup de la extensión.
 
 No incluyas tokens, cookies, correos ni contenido de reuniones.
+
+## Licencia
+
+MPL-2.0. Ver [LICENSE](LICENSE).

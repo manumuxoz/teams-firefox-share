@@ -34,13 +34,21 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fi
 fi
 
-if [[ -f "$sources" ]] && ! unzip -l "$sources" | grep "extension/src/config-bridge.js" >/dev/null; then
+if [[ ! -f "$sources" ]]; then
+  echo "No se generó $sources; se necesita un checkout Git." >&2
+  exit 1
+fi
+
+if ! unzip -l "$sources" | grep "extension/src/config-bridge.js" >/dev/null; then
   echo "El zip de fuentes no contiene extension/src/config-bridge.js; revisa package.sh." >&2
   exit 1
 fi
 
-sha256sum dist/*.xpi dist/*-sources.zip >dist/SHA256SUMS 2>/dev/null || \
-  sha256sum dist/*.xpi >dist/SHA256SUMS
+(
+  cd dist
+  sha256sum *.xpi *-sources.zip >SHA256SUMS
+  sha256sum -c SHA256SUMS
+)
 
 echo "Artefactos:"
 cat dist/SHA256SUMS

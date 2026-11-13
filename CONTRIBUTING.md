@@ -7,6 +7,7 @@ Gracias por querer mejorar el proyecto. La regla principal es no convertir un fa
 - Node.js 20+
 - Python 3.13+
 - Firefox 142+ (para cargar la extensión)
+- `make`, `git`, `zip`, `unzip`, `sha256sum` y `setsid` (Linux)
 - Opcional: `geckodriver` + `selenium` para `make integration`
 
 ## Puesta en marcha

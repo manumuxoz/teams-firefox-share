@@ -12,7 +12,7 @@ deps → lint → test → build → smoke → package
 |---|---|---|
 | `deps` | `npm ci` | Dependencias reproducibles desde `package-lock.json` |
 | `lint` | `npm run lint` | Sintaxis JS, compilación Python, `web-ext lint --warnings-as-errors` |
-| `test` | `npm test` + `python3 -m unittest` | 45 tests JS y 34 tests Python |
+| `test` | `npm test` + `python3 -m unittest` | 49 tests JS y 34 tests Python |
 | `build` | `npm run build` | Genera `dist/teams-screenshare-fix-<version>.xpi` |
 | `smoke` | `scripts/smoke-extension.sh` | Carga la extensión en Firefox headless y detecta el add-on temporal |
 | `package` | `scripts/package.sh` | Genera `SHA256SUMS` y el zip de fuentes |
@@ -81,7 +81,7 @@ Si no aparece en 60 segundos, falla y muestra el log.
    - `dist/teams-screenshare-fix-<version>.xpi`
    - `dist/teams-firefox-share-<version>-sources.zip`
    - `dist/SHA256SUMS`
-4. Marca `v0.*` como prerelease.
+4. Publica el `.xpi` sin firmar junto a las fuentes y los checksums. Firefox release no lo instalará de forma permanente; para eso está AMO.
 
 ### Cómo publicar una versión
 
@@ -114,6 +114,16 @@ npx web-ext sign \
 ```
 
 No publiques el `.xpi` sin firmar como si fuera instalable permanentemente: Firefox solo instala add-ons firmados fuera de modo desarrollador.
+
+## Reproducibilidad
+
+- El zip de fuentes se genera desde `git archive HEAD` en un árbol limpio y es estable para el mismo commit.
+- El `.xpi` incluye timestamps del proceso de build; su hash puede cambiar entre ejecuciones aunque el contenido lógico sea el mismo. No lo uses como prueba de reproducibilidad binaria.
+- `SHA256SUMS` se genera dentro de `dist/` y usa rutas planas, de modo que se puede verificar desde una descarga plana:
+
+```bash
+sha256sum -c SHA256SUMS
+```
 
 ## Versionado
 

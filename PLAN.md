@@ -32,13 +32,15 @@
 
 **Recomendación inmediata:** antes de escribir la extensión, ejecutar la Fase 0 de este plan. En tu máquina concreta, actualizar XDPH a 1.5.0 o probar `force_shm = true` es más probable que arregle el fallo que cualquier parche JavaScript.
 
-### 0.1 Estado de implementación (2026-11-10)
+### 0.1 Estado de implementación (2026-11-13)
 
 Implementado en este repositorio:
 
 - [x] Fase 1 — MVP: extensión MV3, shim de constraints, popup de diagnóstico, doctor read-only, tests y documentación.
 - [x] Fase 2 — configuración persistente, config bridge aislado, safe clamp opcional, toggles, CI, empaquetado `.xpi`.
 - [x] Fase 3 parcial — fixes opt-in del doctor (`force_shm`, picker legacy, reinicio del portal), perfil dedicado y lanzador X11.
+- [x] Preparación para GitHub — comunidad, seguridad, privacidad, Dependabot, iconos, ID estable y guía de publicación.
+- [ ] Push a GitHub (requiere autenticación y crear el remoto).
 - [ ] Validación end-to-end en un tenant real de Teams (requiere cuenta y reunión).
 - [ ] Firma y publicación en AMO (requiere credenciales).
 - [ ] Actualización de XDPH a 1.5.0 en la máquina de referencia (decisión del operador).
@@ -267,8 +269,12 @@ teams-firefox-share/
 ├── CODE_OF_CONDUCT.md
 ├── Makefile
 ├── package.json
+├── .editorconfig
+├── .gitattributes
+├── .gitignore
 ├── extension/
 │   ├── manifest.json
+│   ├── icons/
 │   ├── src/
 │   │   ├── config-defaults.js
 │   │   ├── config-bridge.js
@@ -294,6 +300,7 @@ teams-firefox-share/
 │   ├── constraints.test.mjs
 │   ├── manifest.test.mjs
 │   ├── shim.test.mjs
+│   ├── version.test.mjs
 │   ├── test_doctor.py
 │   ├── fixtures/gdm.html
 │   └── integration/test_extension.py
@@ -304,6 +311,7 @@ teams-firefox-share/
 │   ├── AUDIO.md
 │   ├── PIPELINE.md
 │   ├── AMO.md
+│   ├── PRIVACY.md
 │   └── GITHUB.md
 └── .github/
     ├── workflows/ci.yml
@@ -337,9 +345,9 @@ El manifest real está en `extension/manifest.json`. Resumen:
   },
   "permissions": ["storage", "scripting"],
   "host_permissions": [
-    "*://teams.microsoft.com/*",
-    "*://teams.cloud.microsoft/*",
-    "*://teams.live.com/*"
+    "https://teams.microsoft.com/*",
+    "https://teams.cloud.microsoft/*",
+    "https://teams.live.com/*"
   ],
   "content_scripts": [
     {

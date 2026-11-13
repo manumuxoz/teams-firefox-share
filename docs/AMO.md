@@ -2,6 +2,12 @@
 
 La extensión parchea APIs de captura en los dominios de Teams. Es un caso legítimo de compatibilidad, pero conviene explicarlo con claridad en la ficha y en la revisión.
 
+## Identidad e iconos
+
+- ID: `teams-screenshare-fix@manumuxoz.github.io`
+- Iconos: `extension/icons/icon-{16,32,48,128}.png`, con fuente SVG en `extension/icons/icon.svg`.
+- El ID no se puede cambiar después de la primera publicación en AMO.
+
 ## Permisos
 
 | Permiso | Motivo |
@@ -19,6 +25,8 @@ No se piden permisos de cámara, micrófono, historial, descargas, `activeTab` n
 - No se leen cookies, tokens ni contenido de reuniones.
 - El informe se genera en memoria y se copia al portapapeles solo si el usuario lo pide.
 - `data_collection_permissions: { "required": ["none"] }`.
+
+Política completa: [PRIVACY.md](PRIVACY.md).
 
 ## Qué hace exactamente
 
@@ -45,6 +53,10 @@ Teams for Web es un sitio que depende de `getDisplayMedia`. Firefox lo soporta, 
 ## Texto sugerido para la ficha
 
 > Teams Screen Share Fix (Unofficial) applies a small, local compatibility shim to Microsoft Teams' screen-sharing constraints in Firefox. It does not collect data, does not contact any server, and only runs on the three Teams web domains. It is not affiliated with Microsoft or Mozilla.
+
+## Canal listed
+
+Para `--channel listed`, crea primero la ficha de la extensión en AMO. `web-ext sign` solo envía una versión nueva; no crea la ficha pública.
 
 ## Checklist antes de publicar
 

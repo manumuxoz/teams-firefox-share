@@ -53,6 +53,18 @@ hyprland
 linux
 screen-sharing
 getdisplaymedia
+webextensions
+```
+
+También puedes aplicarlos con `gh`:
+
+```bash
+gh repo edit manumuxoz/teams-firefox-share \
+  --description "Unofficial Firefox extension and Linux diagnostics for Microsoft Teams screen sharing (Wayland/PipeWire/Hyprland)" \
+  --add-topic firefox --add-topic firefox-extension --add-topic microsoft-teams \
+  --add-topic webrtc --add-topic wayland --add-topic pipewire --add-topic hyprland \
+  --add-topic linux --add-topic screen-sharing --add-topic getdisplaymedia \
+  --add-topic webextensions
 ```
 
 **Settings:**
@@ -62,6 +74,9 @@ getdisplaymedia
 - Actions: permitir workflows; el release necesita `contents: write`.
 - Secret scanning y Dependabot alerts: activados.
 - Private vulnerability reporting: activado (ver `SECURITY.md`).
+- Branch protection en `main`: exigir el check `CI / ci`.
+- Tag protection para `v*`.
+- Actions: permisos por defecto de solo lectura; el workflow de release eleva `contents: write` solo en el job de publicación.
 - Pages: no necesario.
 
 ## 4. Badges del README
@@ -102,21 +117,21 @@ La firma es manual. Configura los secretos del repositorio:
 
 Después ejecuta el workflow **AMO Sign** con el canal `unlisted` o `listed`.
 
-Antes de publicar en AMO, cambia el ID de la extensión en `extension/manifest.json`:
+El ID ya está fijado a `teams-screenshare-fix@manumuxoz.github.io`. Si tu usuario de GitHub no es `manumuxoz`, cámbialo antes de la primera publicación:
 
 ```json
-"id": "teams-screenshare-fix@manumuxoz.github.io"
+"id": "teams-screenshare-fix@tu-usuario.github.io"
 ```
 
-El ID `@local` es válido para desarrollo, pero no es apropiado para una publicación permanente. Cambiarlo después de publicar obliga a crear otra extensión.
+El ID no se puede cambiar después de publicar en AMO; cambiarlo obliga a crear otra extensión.
 
 ## 7. Privacidad del correo en Git
 
-Los commits actuales usan un correo personal como autor. GitHub puede ocultarlo en la interfaz si activas “Keep my email addresses private”, pero el correo sigue estando en el objeto del commit.
-
-Antes de publicar, elige una de estas opciones:
+El historial actual usa `manumuxoz@users.noreply.github.com`. Si tu usuario de GitHub no es `manumuxoz`, o si añades commits con un correo personal, puedes reescribir el historial antes de publicar. GitHub también permite ocultar el correo en la interfaz con “Keep my email addresses private”, pero el correo seguiría estando en el objeto del commit.
 
 ### Opción A — reescribir el historial local (recomendada si el repo aún no es público)
+
+Sustituye `old@example.com` por el correo que quieras eliminar:
 
 ```bash
 git config user.name "manumuxoz"
@@ -148,7 +163,10 @@ Solo hazlo si no te importa que el correo aparezca en el commit. En cualquier ca
 - [ ] `git status` limpio.
 - [ ] Sin secretos ni correos personales en el árbol de trabajo.
 - [ ] `package.json`, `extension/manifest.json` y `shim.js` con la misma versión.
-- [ ] `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md` y `CODE_OF_CONDUCT.md` presentes.
+- [ ] `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` y `docs/PRIVACY.md` presentes.
+- [ ] Iconos en `extension/icons/` y declarados en el manifest.
+- [ ] ID de extensión estable (`teams-screenshare-fix@manumuxoz.github.io` o el tuyo).
 - [ ] Topics y descripción configurados.
 - [ ] Private vulnerability reporting activado.
 - [ ] Tag `v0.2.0` solo después de que `main` esté en GitHub.
+- [ ] Recordar que el `.xpi` de GitHub Releases no está firmado; la instalación permanente va por AMO.

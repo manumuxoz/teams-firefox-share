@@ -37,7 +37,7 @@
     "build": "web-ext build --source-dir extension --artifacts-dir dist --overwrite-dest --filename 'teams-screenshare-fix-{version}.xpi'",
     "smoke": "scripts/smoke-extension.sh",
     "package": "npm run build && scripts/package.sh",
-    "ci": "npm ci && npm run lint && npm test && npm run test:py && npm run build && npm run smoke && npm run package"
+    "ci": "make ci"
   },
   "devDependencies": {
     "web-ext": "^10.8.0"

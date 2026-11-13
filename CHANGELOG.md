@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — 2026-11-10
+## 0.2.0 — 2026-11-13
 
 - Configuración persistente del shim: `enabled`, `sanitizeDisplay`, `safeClamp`, `mapLegacyDesktop`, `debug`.
 - Config bridge aislado (`browser.storage.local` → `window.postMessage`) con revisión monotónica y whitelist de claves.
@@ -10,7 +10,7 @@
 - Doctor 0.2.0: logs con ventana de 24 h, detección de prefs falsas, backends XDG, versiones con epoch, `--output`, `--force` y fixes atómicos.
 - Pipeline fijo `make ci` con lint, tests, build, smoke headless y empaquetado.
 - Workflows de CI, release por tag y firma manual en AMO.
-- 45 tests JS y 34 tests Python.
+- 49 tests JS y 34 tests Python.
 
 ## 0.1.0 — 2026-11-10
 

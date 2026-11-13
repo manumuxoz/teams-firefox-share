@@ -16,8 +16,8 @@ permissions:
 
 jobs:
   sign:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -29,11 +29,38 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Install
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: |
+          npm test
+          python3 -m unittest discover -s tests -p "test_*.py"
+
+      - name: Verify version
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          manifest_version="$(jq -r .version extension/manifest.json)"
+          test "$package_version" = "$manifest_version"
+
       - name: Build
         run: npm run build
+
+      - name: Check AMO secrets
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          test -n "$AMO_JWT_ISSUER" || { echo "Falta AMO_JWT_ISSUER" >&2; exit 1; }
+          test -n "$AMO_JWT_SECRET" || { echo "Falta AMO_JWT_SECRET" >&2; exit 1; }
 
       - name: Sign with AMO
         env:
