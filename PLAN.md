@@ -32,7 +32,7 @@
 
 **Recomendación inmediata:** antes de escribir la extensión, ejecutar la Fase 0 de este plan. En tu máquina concreta, actualizar XDPH a 1.5.0 o probar `force_shm = true` es más probable que arregle el fallo que cualquier parche JavaScript.
 
-### 0.1 Estado de implementación (2026-11-13)
+### 0.1 Estado de implementación (2026-11-14)
 
 Implementado en este repositorio:
 
@@ -40,7 +40,9 @@ Implementado en este repositorio:
 - [x] Fase 2 — configuración persistente, config bridge aislado, safe clamp opcional, toggles, CI, empaquetado `.xpi`.
 - [x] Fase 3 parcial — fixes opt-in del doctor (`force_shm`, picker legacy, reinicio del portal), perfil dedicado y lanzador X11.
 - [x] Preparación para GitHub — comunidad, seguridad, privacidad, Dependabot, iconos, ID estable y guía de publicación.
-- [ ] Push a GitHub (requiere autenticación y crear el remoto).
+- [x] Push a GitHub — <https://github.com/manumuxoz/teams-firefox-share>.
+- [x] Release `v0.2.0` publicado con XPI, fuentes y `SHA256SUMS`.
+- [x] CI en `main` en verde y branch protection configurada.
 - [ ] Validación end-to-end en un tenant real de Teams (requiere cuenta y reunión).
 - [ ] Firma y publicación en AMO (requiere credenciales).
 - [ ] Actualización de XDPH a 1.5.0 en la máquina de referencia (decisión del operador).

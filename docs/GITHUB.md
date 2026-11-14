@@ -1,8 +1,20 @@
 # Publicar en GitHub
 
-El repositorio está preparado para subirse tal cual. No hay remoto configurado y `gh` no está autenticado en este entorno.
+Repositorio publicado: <https://github.com/manumuxoz/teams-firefox-share>
+
+Estado actual:
+
+- Remoto `origin` configurado.
+- `main` subido.
+- CI en verde.
+- Release `v0.2.0` publicado con XPI, fuentes y `SHA256SUMS`.
+- Topics, descripción, branch protection, tag ruleset y ajustes de seguridad configurados.
+
+Esta guía queda como referencia para recrear el repositorio o publicar futuras versiones.
 
 ## 1. Autenticación
+
+En este entorno ya está autenticado como `manumuxoz`. En otra máquina:
 
 ```bash
 gh auth login
@@ -12,7 +24,7 @@ Elige GitHub.com, HTTPS y autenticación por navegador o token.
 
 ## 2. Crear el repositorio y subir `main`
 
-Desde la raíz del proyecto:
+Ya existe. Para recrearlo desde cero:
 
 ```bash
 gh repo create teams-firefox-share \
@@ -81,7 +93,7 @@ gh repo edit manumuxoz/teams-firefox-share \
 
 ## 4. Badges del README
 
-Cuando exista el remoto, añade al principio de `README.md`:
+Los badges ya están en `README.md`. Si cambias de propietario, actualízalos:
 
 ```md
 [![CI](https://github.com/manumuxoz/teams-firefox-share/actions/workflows/ci.yml/badge.svg)](https://github.com/manumuxoz/teams-firefox-share/actions/workflows/ci.yml)
@@ -90,22 +102,24 @@ Cuando exista el remoto, añade al principio de `README.md`:
 
 Si tu usuario no es `manumuxoz`, sustituye el propietario en `package.json`, `docs/GITHUB.md`, `SECURITY.md` y las badges.
 
-## 5. Primer release
+## 5. Releases
+
+`v0.2.0` ya está publicado. Para una versión nueva:
 
 ```bash
 # Asegura que package.json, extension/manifest.json y shim.js tienen la misma versión
 make ci
 
 git add .
-git commit -m "Release 0.2.0"
-git tag v0.2.0
+git commit -m "Release X.Y.Z"
+git tag vX.Y.Z
 git push origin main --tags
 ```
 
 El workflow `release.yml` verifica que el tag coincida con `package.json`, ejecuta `make ci` y publica:
 
-- `teams-screenshare-fix-0.2.0.xpi`
-- `teams-firefox-share-0.2.0-sources.zip`
+- `teams-screenshare-fix-X.Y.Z.xpi`
+- `teams-firefox-share-X.Y.Z-sources.zip`
 - `SHA256SUMS`
 
 ## 6. AMO
@@ -157,16 +171,17 @@ git gc --prune=now
 
 Solo hazlo si no te importa que el correo aparezca en el commit. En cualquier caso, configura el correo noreply para los commits futuros.
 
-## 8. Checklist antes del push
+## 8. Checklist de publicación
 
-- [ ] `make ci` en verde.
-- [ ] `git status` limpio.
-- [ ] Sin secretos ni correos personales en el árbol de trabajo.
-- [ ] `package.json`, `extension/manifest.json` y `shim.js` con la misma versión.
-- [ ] `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` y `docs/PRIVACY.md` presentes.
-- [ ] Iconos en `extension/icons/` y declarados en el manifest.
-- [ ] ID de extensión estable (`teams-screenshare-fix@manumuxoz.github.io` o el tuyo).
-- [ ] Topics y descripción configurados.
-- [ ] Private vulnerability reporting activado.
-- [ ] Tag `v0.2.0` solo después de que `main` esté en GitHub.
-- [ ] Recordar que el `.xpi` de GitHub Releases no está firmado; la instalación permanente va por AMO.
+- [x] `make ci` en verde.
+- [x] `git status` limpio.
+- [x] Sin secretos ni correos personales en el árbol de trabajo.
+- [x] `package.json`, `extension/manifest.json` y `shim.js` con la misma versión.
+- [x] `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` y `docs/PRIVACY.md` presentes.
+- [x] Iconos en `extension/icons/` y declarados en el manifest.
+- [x] ID de extensión estable (`teams-screenshare-fix@manumuxoz.github.io`).
+- [x] Topics y descripción configurados.
+- [x] Private vulnerability reporting, secret scanning y Dependabot activados.
+- [x] Branch protection en `main` y tag ruleset para `v*`.
+- [x] Tag `v0.2.0` publicado.
+- [x] Recordatorio: el `.xpi` de GitHub Releases no está firmado; la instalación permanente va por AMO.

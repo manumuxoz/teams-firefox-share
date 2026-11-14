@@ -17,6 +17,8 @@ El plan completo, con evidencia, diagnóstico y roadmap, está en **[PLAN.md](PL
 
 ## Estado
 
+- **Repositorio:** <https://github.com/manumuxoz/teams-firefox-share>
+- **Release:** <https://github.com/manumuxoz/teams-firefox-share/releases/tag/v0.2.0>
 - **Versión:** 0.2.0.
 - **Fase:** MVP publicable / pruebas end-to-end pendientes en un tenant real.
 - **Firefox objetivo:** 142+ (por `data_collection_permissions`); validado en 153.6.0esr.
